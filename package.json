@@ -1,8 +1,13 @@
 {
   "name": "dsh-sekaisync-connect",
-  "version": "0.3.1",
+  "version": "0.3.2-alpha",
   "description": "SekaiSync 知识库的 DeepSeek Harness 直连模块：零依赖、零构建、token 最小化。插件拉起 sekaisync HTTP 服务并暴露 10 个紧凑工具（含动态热词探针、活动简称/箱活名统一解析与跨语言用语穿透）。",
   "type": "module",
+  "scripts": {
+    "test": "node --test scripts/runtime.test.mjs scripts/config.test.mjs",
+    "benchmark": "node scripts/benchmark-runtime.mjs",
+    "test:integration": "node scripts/verify-integration.mjs"
+  },
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -39,7 +44,8 @@
     "config.json",
     "cordis.patch.yml",
     "README.md",
-    "CHANGELOG.md",
+    "README.zh-CN.md",
+    ".github/readme",
     "LICENSE"
   ],
   "dsh": {

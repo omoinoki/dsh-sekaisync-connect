@@ -74,7 +74,7 @@ await new Promise((r) => setTimeout(r, 200))
 const tools = ctx.get('tools')
 if (!tools) { console.log('FAIL: tool registry did not mount'); process.exit(2) }
 
-const row = { store: 'C:\\dsh_projects\\sekaisync-handoff-2026-08-14\\store' }
+const row = { store: process.env.SEKAISYNC_STORE || join(tmpdir(), 'sekaisync-activation-store') }
 ctx.plugin({ name: plugin.name, inject: plugin.inject, apply: plugin.apply }, row)
 await new Promise((r) => setTimeout(r, 250))
 

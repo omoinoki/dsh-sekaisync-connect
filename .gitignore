@@ -8,3 +8,9 @@ Thumbs.db
 
 # 本地探测/抓取产物（非插件资产）
 moegirl-wx-sides.html
+
+# Maintainer-only documentation and preserved public-document excerpts.
+/.maintainer/
+
+# Machine-specific overrides; the published config.json contains defaults only.
+/config.local.json
