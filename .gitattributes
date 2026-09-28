@@ -1,0 +1,9 @@
+# 仓库内统一使用 LF，避免 Windows 上签出时被改写为 CRLF 而产生噪声 diff。
+* text=auto eol=lf
+
+# 二进制/资产不做换行转换
+*.svg text eol=lf
+*.png binary
+*.jpg binary
+*.webp binary
+*.ico binary
