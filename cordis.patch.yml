@@ -1,0 +1,14 @@
+# dsh-sekaisync-connect bundle patch: mounts the plugin into a profile layer stack.
+# Runtime defaults live at the plugin's config boundary (config.json + 环境变量).
+# 用户可在自己的 profile patch 里用同一个 id 覆盖下面任意字段——该层在插件升级时
+# 不会被覆盖（DSH 的 patch 层优先级高于 bundle 层）。
+#
+# 可覆盖字段（均可被同名环境变量覆盖：SEKAISYNC_STORE / _ROOT / _PYTHON / _PORT）：
+#   store         SekaiSync store 目录（含 kb/）
+#   root          sekaisync 仓库根目录（`python -m sekaisync` 的工作目录）
+#   python        python 可执行文件
+#   externalPort  复用已有服务器的探测端口（默认 8787）
+- insert:
+    - id: dsh-sekaisync-connect
+      name: 'dsh-sekaisync-connect'
+      config: {}

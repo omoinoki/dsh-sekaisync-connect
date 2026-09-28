@@ -1,0 +1,51 @@
+{
+  "name": "dsh-sekaisync-connect",
+  "version": "0.3.1",
+  "description": "SekaiSync 知识库的 DeepSeek Harness 直连模块：零依赖、零构建、token 最小化。插件拉起 sekaisync HTTP 服务并暴露 10 个紧凑工具（含动态热词探针、活动简称/箱活名统一解析与跨语言用语穿透）。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "icon": "./icon.svg",
+  "license": "MIT",
+  "author": "zukunftsholz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zukunftsholz/dsh-sekaisync-connect.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "sekaisync",
+    "project-sekai",
+    "knowledge-base",
+    "toolkit"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.2"
+  },
+  "files": [
+    "lib",
+    "locale",
+    "icon.svg",
+    "config.json",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

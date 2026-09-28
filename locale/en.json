@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "SekaiSync Connect",
+    "description": "Direct-connect module for a local SekaiSync (Project Sekai) knowledge base, exposing 10 compact tools to DSH: content gating, entity lookup, fact packs, localized-name resolution, terms with cross-language penetration, activity aliases, story full text, official news, and status."
+  }
+}
