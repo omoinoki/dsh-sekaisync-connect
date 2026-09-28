@@ -33,6 +33,25 @@ for (const [name, text] of [['README.md', en], ['README.zh-CN.md', zh]]) {
   }
 }
 
+// ── 展示用简介：不得夹带「世界计划 / Project Sekai」括号补充 ──
+// 客户端（插件面板/设置清单）显示的就是 locale/*/meta.description。
+// 「SekaiSync」本身已足够指认，括号补充只会让卡片变长变吵。
+const BANNED = [/世界计划/, /世界計畫/, /世界計画/, /Project Sekai/i, /プロセカ/, /プロジェクトセカイ/]
+for (const file of ['locale/en.json', 'locale/zh.json']) {
+  const parsed = JSON.parse(read(file))
+  const description = parsed?.meta?.description
+  assert.ok(description, `${file} must carry meta.description (the client shows it)`)
+  for (const pattern of BANNED) {
+    assert.equal(pattern.test(description), false,
+      `${file} description must not contain ${pattern}; got: ${description}`)
+  }
+}
+// package.json 的 description 也会作为兜底显示，同样不得夹带
+for (const pattern of BANNED) {
+  assert.equal(pattern.test(pkg.description ?? ''), false,
+    `package.json description must not contain ${pattern}`)
+}
+
 // ── 文档声称的每个面板控件都必须在字典里真实存在 ──
 // README 表格里提到的按钮名 → client.js 的字典键
 const controls = [

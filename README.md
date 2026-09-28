@@ -9,7 +9,7 @@
 
 English | [中文](README.zh-CN.md)
 
-[![Release](https://img.shields.io/badge/Release-0.3.3--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.4--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
@@ -42,7 +42,17 @@ dsh plugin --profile web add <本目录>
 | `0.1.5-rc.2` | allow |
 | `0.1.7-rc.2` | allow |
 | `0.1.8` | allow |
-| `0.2.0-rc.1` / `0.2.0` | **DENY** (unverified versions fail closed; use `dsh plugin allow-version` for an exception) |
+| `0.2.0-rc.1` | allow (verified: tools, panel routes, and a real lookup all run on this runtime) |
+| `0.2.x` | allow |
+| `0.3.0` / `0.3.0-rc.1` / `1.0.0` | **DENY** (unverified versions fail closed; use `dsh plugin allow-version` for an exception) |
+
+The gate is `evaluatePluginCompatibility`, which reads `peerDependencies` only. This plugin declares
+`@deepseek-ai/dsh-tools: ">=0.1.5-rc.2 <0.3.0-0"`. Note the `-0` suffix: a bare `<0.3.0` would still admit
+`0.3.0-rc.1`, because semver orders prereleases below their release. `scripts/verify-version-gate.mjs`
+re-runs the runtime's own evaluator against this table on every release.
+
+If a runtime upgrade ever disables this plugin, the symptom is that the tools disappear entirely and the
+panel stops loading — the composition rejects the bundle before any of its code runs.
 
 <a id="readme-section-03"></a>
 

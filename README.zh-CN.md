@@ -9,7 +9,7 @@
 
 [English](README.md) | 中文
 
-[![Release](https://img.shields.io/badge/Release-0.3.3--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.4--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
@@ -42,7 +42,17 @@ dsh plugin --profile web add <本目录>
 | `0.1.5-rc.2` | allow |
 | `0.1.7-rc.2` | allow |
 | `0.1.8` | allow |
-| `0.2.0-rc.1` / `0.2.0` | **DENY**（未验证的版本 fail-closed，用 `dsh plugin allow-version` 豁免） |
+| `0.2.0-rc.1` | allow（已实测：工具、面板路由与真实查询都在该运行时上跑通） |
+| `0.2.x` | allow |
+| `0.3.0` / `0.3.0-rc.1` / `1.0.0` | **DENY**（未验证的版本 fail-closed，用 `dsh plugin allow-version` 豁免） |
+
+闸门是 `evaluatePluginCompatibility`，只读取 `peerDependencies`。本插件声明
+`@deepseek-ai/dsh-tools: ">=0.1.5-rc.2 <0.3.0-0"`。注意结尾的 `-0`：若只写 `<0.3.0`，
+`0.3.0-rc.1` 仍会被放行——因为 semver 把预发布排在正式版**之前**。
+`scripts/verify-version-gate.mjs` 每次发布都会用运行时自己的实现对着这张表复跑一遍。
+
+若某次运行时升级把本插件禁用了，症状是工具整体消失、面板也不加载：组合在插件代码运行**之前**
+就把这个 bundle 拒掉了。
 
 <a id="readme-section-03"></a>
 

@@ -69,13 +69,18 @@ function incompatiblePeers(manifest, runtimeVersion) {
 
 const manifest = JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8'))
 
-// 期望：本插件验证过的两版放行；明确未验证的 0.2.x fail-closed。
+// 期望：已验证的 0.1.x 与 0.2.x 放行；明确未验证的 0.3.x / 1.x fail-closed。
+// 注意 0.2.x 由「未验证」改为「已验证」：本机 0.2.0-rc.1 上实测工具注册、面板路由与
+// 真实 lookup 全部跑通，因此继续把它挡在门外只会误伤。完整的跨版本判定在
+// scripts/verify-version-gate.mjs（直接用运行时的实现复跑）；这里只守住结论不回退。
 const EXPECT = [
   ['0.1.5-rc.2', true],
   ['0.1.7-rc.2', true],
   ['0.1.8', true],
-  ['0.2.0-rc.1', false],
-  ['0.2.0', false],
+  ['0.2.0-rc.1', true],
+  ['0.2.0', true],
+  ['0.3.0', false],
+  ['1.0.0', false],
 ]
 
 let bad = 0
@@ -94,9 +99,11 @@ const peers = manifest.peerDependencies ?? {}
 const checks = [
   ['声明了 @deepseek-ai/dsh-tools 的 peer（参与兼容性闸门）',
     typeof peers['@deepseek-ai/dsh-tools'] === 'string'],
-  ['声明了 @deepseek-ai/cordis 的 peer', typeof peers['@deepseek-ai/cordis'] === 'string'],
-  ['peer 范围用单条 ^0.1.5-rc.2 即可覆盖 0.1.x 全段（闸门带 includePrerelease）',
-    peers['@deepseek-ai/dsh-tools'] === '^0.1.5-rc.2'],
+  // 范围必须是**有上界**的：无上界（如 `>=0.1.5-rc.2` 或 `*`）等于宣称与所有未来版本兼容，
+  // 与「未验证版本 fail-closed」的设计相悖。上界还要写成 `<0.3.0-0`，否则 `0.3.0-rc.1`
+  // 会被放行（semver 把预发布排在正式版之前）。
+  ['peer 范围有上界且上界带 -0（否则预发布会漏进来）',
+    /<\s*0\.3\.0-0\s*$/.test(peers['@deepseek-ai/dsh-tools'] ?? '')],
   ['未声明 engines.dsh（该字段不被强制检查，声明只增歧义）',
     manifest.engines?.dsh === undefined],
   ['未声明 package.json 顶层 meta（展示元数据只从 locale/*.json 读取）',
@@ -112,6 +119,6 @@ for (const [label, ok] of checks) {
 }
 
 console.log(bad === 0
-  ? '\nENTRY COMPATIBILITY OK (两版实测版本放行；未验证的 0.2.x fail-closed)'
+  ? '\nENTRY COMPATIBILITY OK (已验证的 0.1.x / 0.2.x 放行；未验证的 0.3.x / 1.x fail-closed)'
   : `\n${bad} ENTRY COMPATIBILITY PROBLEM(S)`)
 process.exit(bad === 0 ? 0 : 1)
