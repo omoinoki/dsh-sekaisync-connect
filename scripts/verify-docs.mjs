@@ -113,6 +113,38 @@ for (const [label, text] of [['README.md', en], ['README.zh-CN.md', zh]]) {
     `${label} YAML example must not use the old id that collides with the package name`)
 }
 
+// ── 公开 README 不得重新渗入维护者视角的内容 ──
+// 这两份 README 是给最终用户看的。实现细节（内部函数/脚本名、协议名、semver 推导）与
+// 仓库卫生（gitignore 了什么）属于维护者文档，应留在 .maintainer/（已被 gitignore）。
+// 2026-09-28 与 2026-09-29 两轮裁切的归档见 .maintainer/docs/。
+const MAINTAINER_ONLY = [
+  [/evaluatePluginCompatibility/, 'internal gate function name'],
+  [/verify-[\w-]+\.mjs/, 'internal script name (scripts/ is not published)'],
+  [/TYPERT_REMOTE/, 'internal contribution constant'],
+  [/ctx\.remote\.sekaisync/, 'internal client call path'],
+  [/\.volatile\(\)/, 'schemastery implementation detail'],
+  [/gitignore/i, 'repository hygiene'],
+  [/hand-written|手写的/, 'implementation self-description'],
+  [/id: zgit|id: better-sidebar/, 'other plugins` internal row ids'],
+]
+for (const [label, text] of [['README.md', en], ['README.zh-CN.md', zh]]) {
+  for (const [pattern, why] of MAINTAINER_ONLY) {
+    assert.equal(pattern.test(text), false,
+      `${label} must not expose ${why} (${pattern}); keep it in .maintainer/ instead`)
+  }
+}
+
+// 安装命令必须对远程用户可执行：该包未发布到 npm，因此必须给出 git 形式，
+// 并且要能看出项目仓库在哪。
+for (const [label, text] of [['README.md', en], ['README.zh-CN.md', zh]]) {
+  assert.ok(/dsh plugin --profile \w+ add github:omoinoki\/dsh-sekaisync-connect/.test(text),
+    `${label} must show a copy-pasteable git install command`)
+  assert.ok(text.includes('https://github.com/omoinoki/dsh-sekaisync-connect'),
+    `${label} must link its own project home`)
+  assert.equal(/add <本目录>|add <this directory>/.test(text), false,
+    `${label} must not use an unexecutable placeholder as the install command`)
+}
+
 // ── 故障排查小节必须提到面板相关的失败模式 ──
 assert.ok(/Configure/.test(en), 'English troubleshooting must cover the missing Configure page')
 assert.ok(/配置/.test(zh), 'Chinese troubleshooting must cover the missing Configure page')

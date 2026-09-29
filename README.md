@@ -9,14 +9,16 @@
 
 English | [中文](README.zh-CN.md)
 
-[![Release](https://img.shields.io/badge/Release-0.3.8--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.9--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
   <a href="#readme-overview">Overview</a> ·
   <a href="#readme-section-01">Quick start</a> ·
+  <a href="#readme-section-03">Configuration</a> ·
   <a href="#readme-section-panel">Plugins panel</a> ·
   <a href="#readme-section-tools">Tools</a> ·
+  <a href="#readme-section-08">Usage</a> ·
   <a href="#readme-section-09">More information</a>
 </p>
 <!-- readme-navigation:end -->
@@ -29,29 +31,32 @@ A **DeepSeek Harness direct-connect module** for the SekaiSync knowledge base: z
 
 ## Installation
 
-```powershell
-# 环境要求：Python ≥ 3.10 且可 `python -m sekaisync`（零第三方依赖），
-# 以及一个已同步的 store（sekaisync init / sync 产物）。
+Requires **Python ≥ 3.10** with a working `python -m sekaisync` (no third-party dependencies), plus a
+synced store (a `sekaisync init` / `sync` product).
 
-# 常规插件装配（bundle patch，DSH 官方机制）
-dsh plugin --profile web add <本目录>
+```powershell
+# Install from Git:
+dsh plugin --profile web add github:omoinoki/dsh-sekaisync-connect
+
+# …or from a local checkout:
+dsh plugin --profile web add ./dsh-sekaisync-connect
 ```
+
+Project home: <https://github.com/omoinoki/dsh-sekaisync-connect>
 
 | Runtime | Verdict |
 | --- | --- |
-| `0.1.x` | **DENY** (the official panel mechanism — `.volatile()` Config + `settings` + Typert Remote — does not exist before `0.2.0-rc.1`) |
+| `0.1.x` | **DENY** — the panel API this plugin needs does not exist before `0.2.0-rc.1` |
 | `0.2.0-rc.1` | allow (verified: tools, panel, and a real lookup all run on this runtime) |
 | `0.2.x` | allow |
-| `0.3.0` / `0.3.0-rc.1` / `1.0.0` | **DENY** (unverified versions fail closed; use `dsh plugin allow-version` for an exception) |
+| `0.3.0` / `0.3.0-rc.1` / `1.0.0` | **DENY** — unverified versions fail closed |
 
-The gate is `evaluatePluginCompatibility`, which reads `peerDependencies` only. This plugin declares
-`@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-settings`, and `@deepseek-ai/dsh-typert-protocol` each as
-`">=0.2.0-rc.1 <0.3.0-0"`. Note the `-0` suffix: a bare `<0.3.0` would still admit `0.3.0-rc.1`, because
-semver orders prereleases below their release. `scripts/verify-version-gate.mjs` re-runs the runtime's own
-evaluator against this table on every release.
+Anything outside the allowed range is refused rather than half-loaded, so the worst case is a clear
+"incompatible" notice instead of a crash. To run an unverified version anyway, use
+`dsh plugin allow-version`.
 
 If a runtime upgrade ever disables this plugin, the symptom is that the tools disappear entirely and the
-panel stops loading — the composition rejects the bundle before any of its code runs.
+panel stops loading — the whole bundle is rejected before any of its code runs.
 
 <a id="readme-section-03"></a>
 
@@ -77,12 +82,9 @@ You can also override these settings in your own profile patch; plugin upgrades 
     python: 'py'
 ```
 
-The row `id` is deliberately **not** the package name. The plugin page renders a row's id and
-its module name as two separate technical lines, and only deduplicates the id against the row
-title — so an `id` equal to `name` shows the same string twice. Keep them distinct, as every
-other bundle does (`dsh-zgit` uses `id: zgit`, `dsh-better-sidebar` uses `id: better-sidebar`).
-This `id` is also the `settings` namespace the panel writes through, so a profile that already
-has the old `id: dsh-sekaisync-connect` row must be updated to match.
+Keep the row `id` as `sekaisync-connect`. It is the key the panel writes through, so if you copy this
+snippet into a profile that still uses an older id, update that row's id to match — otherwise the panel
+and the saved path refer to different rows.
 
 - HTTP connects only to loopback and rejects redirects. Health and error responses are limited to 64 KiB and 4 KiB respectively. The default successful-response budget is 128 MiB, covering typical body results with `limit=100` and `max_text_chars=200000`. `max_text_chars=0` still means full text upstream; if an exceptionally large full-text response exceeds the transfer budget, increase `maxResponseBytes` (up to 1 GiB) or read in batches.
 - External-port reuse still follows the existing `/health` ready/status check. That endpoint carries no store identifier, so you must ensure the configured port serves the intended knowledge base.
@@ -105,10 +107,10 @@ The **Effective store** / **Effective root** readout tracks the path field as yo
 and shows a **Not saved yet** marker whenever the typed path differs from the saved one — so a change
 is visible before you commit to it.
 
-The panel reads and writes the plugin's own **Cordis Config** (`store` / `root`, both declared
-`.volatile()` so they are live-editable). The value shown is what the runtime resolves after the full
-precedence chain: environment variables > profile row config > `SEKAISYNC_CONFIG` > `config.local.json`
-> `config.json` > automatic discovery.
+The panel reads and writes the plugin's own **Cordis Config** (`store` / `root`), so a change survives
+upgrades and takes effect without restarting DSH. The value shown is what the runtime resolves after the
+full precedence chain: environment variables > profile row config > `SEKAISYNC_CONFIG` >
+`config.local.json` > `config.json` > automatic discovery.
 
 Constraints, by design:
 
@@ -117,7 +119,7 @@ Constraints, by design:
   host-side directory-level permissions that a plugin row cannot rely on, so they were removed rather
   than left as buttons that do nothing. Type the path instead; `Check` classifies it and tells you what
   it found.
-- The panel backend is a **Typert Remote** service (namespace `sekaisync`) registered in the profile row's own fiber, mirroring the official `dsh-experimental-voice-input-bundle`/`dsh-api-settings-controller` pattern. The browser half mounts a hand-written `TYPERT_REMOTE` contribution and calls `ctx.remote.sekaisync.*` — it no longer hand-rolls HTTP routes. Writes go through `settings.update`, which the framework fences with the same Host/Origin and cookie authentication as every `/api` surface, and which serializes writes and validates values before persistence. A profile without a `settings` service (a pure CLI composition) simply never mounts the panel, while the 10 tools keep working.
+- The panel backend is a **Typert Remote** service (namespace `sekaisync`) registered in the profile row's own fiber, mirroring the official `dsh-experimental-voice-input-bundle`/`dsh-api-settings-controller` pattern. Writes go through `settings.update`, which the framework fences with the same Host/Origin and cookie authentication as every `/api` surface, and which serializes writes and validates values before persistence. A profile without a `settings` service (a pure CLI composition) simply never mounts the panel, while the 10 tools keep working.
 - The panel is an addition, not a requirement. Without it, the file-based configuration above works exactly as before.
 
 <a id="readme-section-tools"></a>
@@ -160,7 +162,7 @@ Ten model-facing tools, all read-only against the local knowledge base:
 - Server 60-second cooldown: automatic restarts pause after 2 consecutive crashes. Check the integrity of the store with `python -m sekaisync --no-event-check integrity`.
 - `ERROR: HTTP …` in a tool result: the server has started but the request failed, usually because of a parameter issue. `sekai_status` reports the service mode and store path.
 - `ERROR: 缺少必填参数 …`: the plugin's guard caught a missing argument. Supply the requested argument and retry.
-- The row's **Configure** page is missing: the panel needs a Web profile with the plugin-manager UI and the `settings` service (a pure CLI composition has neither). Confirm `ui-plugin-manager` is in the profile, that the bundle is switched on, and that the plugin was installed after this release — a package installed from GitHub does not carry the gitignored `config.local.json`, so also confirm the deployment path is resolvable (see the first item above).
+- The row's **Configure** page is missing: the panel needs a Web profile with the plugin-manager UI and the `settings` service (a pure CLI composition has neither). Confirm `ui-plugin-manager` is in the profile, that the bundle is switched on, and that the deployment path resolves (see the first item above).
 - **Save and apply** reports success but the old path stays in effect: a higher layer (environment variable or profile row config) fixes `store`. The page names the effective value; change the higher layer instead.
 - `forbidden` or `unauthorized` from the panel: the request did not pass the framework's Host/Origin and cookie fence. The panel's `settings`-backed writes are intentionally restricted to the authenticated local client.
 - If `sekai_probe` reports `词表来源=static`, the dynamic lexicon (`terms export`) has not finished warming or its build failed.

@@ -9,14 +9,16 @@
 
 [English](README.md) | 中文
 
-[![Release](https://img.shields.io/badge/Release-0.3.8--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.9--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
   <a href="#readme-overview">项目介绍</a> ·
   <a href="#readme-section-01">快速开始</a> ·
+  <a href="#readme-section-03">配置</a> ·
   <a href="#readme-section-panel">插件面板</a> ·
   <a href="#readme-section-tools">工具一览</a> ·
+  <a href="#readme-section-08">使用建议</a> ·
   <a href="#readme-section-09">更多说明</a>
 </p>
 <!-- readme-navigation:end -->
@@ -29,29 +31,31 @@ SekaiSync 知识库的 **DeepSeek Harness 直连插件**：具备无第三方依
 
 ## 安装
 
-```powershell
-# 环境要求：Python ≥ 3.10 且可 `python -m sekaisync`（零第三方依赖），
-# 以及一个已同步的 store（sekaisync init / sync 产物）。
+环境要求：**Python ≥ 3.10** 且可 `python -m sekaisync`（零第三方依赖），以及一个已同步的
+store（`sekaisync init` / `sync` 产物）。
 
-# 常规插件装配（bundle patch，DSH 官方机制）
-dsh plugin --profile web add <本目录>
+```powershell
+# 从 Git 安装：
+dsh plugin --profile web add github:omoinoki/dsh-sekaisync-connect
+
+# 或从本地检出的目录安装：
+dsh plugin --profile web add ./dsh-sekaisync-connect
 ```
+
+项目主页：<https://github.com/omoinoki/dsh-sekaisync-connect>
 
 | 运行时 | 判定 |
 | --- | --- |
-| `0.1.x` | **DENY**（官方面板机制——`.volatile()` Config + `settings` + Typert Remote——在 `0.2.0-rc.1` 之前不存在） |
+| `0.1.x` | **DENY**——本插件所需的面板接口在 `0.2.0-rc.1` 之前不存在 |
 | `0.2.0-rc.1` | allow（已实测：工具、面板与真实查询都在该运行时上跑通） |
 | `0.2.x` | allow |
-| `0.3.0` / `0.3.0-rc.1` / `1.0.0` | **DENY**（未验证的版本 fail-closed，用 `dsh plugin allow-version` 豁免） |
+| `0.3.0` / `0.3.0-rc.1` / `1.0.0` | **DENY**——未验证的版本一律拒绝 |
 
-闸门是 `evaluatePluginCompatibility`，只读取 `peerDependencies`。本插件声明
-`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-settings`、`@deepseek-ai/dsh-typert-protocol` 均为
-`">=0.2.0-rc.1 <0.3.0-0"`。注意结尾的 `-0`：若只写 `<0.3.0`，`0.3.0-rc.1` 仍会被放行——
-因为 semver 把预发布排在正式版**之前**。`scripts/verify-version-gate.mjs` 每次发布都会用
-运行时自己的实现对着这张表复跑一遍。
+不在放行范围内的版本会被整体拒绝，而不是半加载：最坏情况是一条清楚的「不兼容」提示，
+而不是崩溃。确实要在未验证版本上运行时，用 `dsh plugin allow-version`。
 
-若某次运行时升级把本插件禁用了，症状是工具整体消失、面板也不加载：组合在插件代码运行**之前**
-就把这个 bundle 拒掉了。
+若某次运行时升级把本插件禁用了，症状是工具整体消失、面板也不加载：整个组合包在插件代码
+运行**之前**就被拒掉了。
 
 <a id="readme-section-03"></a>
 
@@ -77,11 +81,8 @@ dsh plugin --profile web add <本目录>
     python: 'py'
 ```
 
-行的 `id` 刻意**不等于**包名。插件页会把「行 id」与「模块名」作为两行技术标识分别渲染，
-而去重判断只覆盖「行 id vs 标题」这一对——所以 `id` 与 `name` 相同时，同一个字符串会出现
-两次。请像其它 bundle 一样把二者区分开（`dsh-zgit` 用 `id: zgit`，`dsh-better-sidebar`
-用 `id: better-sidebar`）。这个 `id` 同时是面板写入所用的 `settings` 命名空间，因此已有
-`id: dsh-sekaisync-connect` 行的 profile 需要同步改成新 id。
+请保留行的 `id` 为 `sekaisync-connect`。它是面板写入所用的键；若把这段示例复制进仍在用旧 id
+的 profile，请把那一行的 id 一并改过来，否则面板与已保存的路径会指向不同的行。
 
 - HTTP 仅连接回环地址（loopback），显式禁止重定向。健康探测与错误响应分别限制为 64 KiB 与 4 KiB。默认常规响应预算为 128 MiB，覆盖常规 `limit=100` 与 `max_text_chars=200000` 的正文结果。`max_text_chars=0` 仍表示获取上游全量正文；若超大正文超出传输预算，可通过增大 `maxResponseBytes`（上限 1 GiB）或采取分批检索的方式处理。
 - 外部端口复用依然依赖 `/health` 的 ready/status 判定；因该端点未携带 store 唯一标识，配置时请确保对应端口指向正确的知识库实例。
@@ -103,7 +104,7 @@ dsh plugin --profile web add <本目录>
 **生效 store / 生效 root** 会随输入框的路径实时更新（250ms 去抖）；当输入的路径与已保存的
 不一致时，上方会显示**「尚未保存」**标记——改动在提交之前就看得见。
 
-面板读写的是插件自己的 **Cordis Config**（`store` / `root`，二者都声明为 `.volatile()`，可在线编辑）。显示的值是运行时按完整优先级链解析后的结果：环境变量 > profile 行 config > `SEKAISYNC_CONFIG` > `config.local.json` > `config.json` > 自动发现。
+面板读写的是插件自己的 **Cordis Config**（`store` / `root`），改动在升级后依然保留，且无需重启 DSH 即生效。显示的值是运行时按完整优先级链解析后的结果：环境变量 > profile 行 config > `SEKAISYNC_CONFIG` > `config.local.json` > `config.json` > 自动发现。
 
 刻意的边界：
 
@@ -111,7 +112,7 @@ dsh plugin --profile web add <本目录>
 - 面板**不提供**自动探测、选择文件夹与目录浏览。这三个动作依赖宿主侧的目录级权限，而插件行无法
   可靠地拿到这些权限；与其留几个按下去没反应的按钮，不如删掉。路径请直接输入，`Check` 会判定它
   到底是什么。
-- 面板后端是一个 **Typert Remote** 服务（命名空间 `sekaisync`），注册在本 profile 行自己的 fiber 里，与官方 `dsh-experimental-voice-input-bundle` / `dsh-api-settings-controller` 的做法一致。浏览器半侧挂载一份手写的 `TYPERT_REMOTE` 贡献，通过 `ctx.remote.sekaisync.*` 调用——不再手写 HTTP 路由。写入走 `settings.update`，由框架用与所有 `/api` 表面相同的 Host/Origin + cookie 栅栏把关，并串行化写入、写入前先校验取值。没有 `settings` 服务的组合（纯 CLI）不会挂载面板，而 10 个工具照常可用。
+- 面板后端是一个 **Typert Remote** 服务（命名空间 `sekaisync`），注册在本 profile 行自己的 fiber 里，与官方 `dsh-experimental-voice-input-bundle` / `dsh-api-settings-controller` 的做法一致。写入走 `settings.update`，由框架用与所有 `/api` 表面相同的 Host/Origin + cookie 栅栏把关，并串行化写入、写入前先校验取值。没有 `settings` 服务的组合（纯 CLI）不会挂载面板，而 10 个工具照常可用。
 - 面板是增强项而非必需项。没有它时，上面的文件配置方式完全照旧可用。
 
 <a id="readme-section-tools"></a>
@@ -154,7 +155,7 @@ dsh plugin --profile web add <本目录>
 - 服务器 60 秒冷却：连续崩溃 2 次后暂停自动重启，检查 store 完整性（`python -m sekaisync --no-event-check integrity`）。
 - 工具结果里的 `ERROR: HTTP …`：服务器已起但请求失败，多为参数问题；`sekai_status` 可看服务模式与 store 路径。
 - `ERROR: 缺少必填参数 …`：插件侧守卫拦截，按提示补齐参数即可。
-- 行上找不到「**配置**」入口：面板需要带插件管理界面与 `settings` 服务的 Web profile（纯 CLI 组合两者皆无）。请确认 profile 里有 `ui-plugin-manager`、该组合包已开启，且插件是在本版本之后安装的——从 GitHub 安装的包不含被 gitignore 的 `config.local.json`，因此还要确认部署路径可被解析（见第一条）。
+- 行上找不到「**配置**」入口：面板需要带插件管理界面与 `settings` 服务的 Web profile（纯 CLI 组合两者皆无）。请确认 profile 里有 `ui-plugin-manager`、该组合包已开启，且部署路径可被解析（见第一条）。
 - 「**保存并生效**」提示成功但路径没变：更高层（环境变量或 profile 行 config）已钉死 `store`。页面会显示当前生效值，请改那一层。
 - 面板返回 `forbidden` 或 `unauthorized`：请求没有通过框架的 Host/Origin 与 cookie 栅栏。面板基于 `settings` 的写入刻意只对已鉴权的本机客户端开放。
 - `sekai_probe` 显示 `词表来源=static`：动态词表（`terms export`）尚未预热完成或构建失败，
