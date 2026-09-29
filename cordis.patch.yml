@@ -3,12 +3,20 @@
 # 用户可在自己的 profile patch 里用同一个 id 覆盖下面任意字段——该层在插件升级时
 # 不会被覆盖（DSH 的 patch 层优先级高于 bundle 层）。
 #
+# ⚠️ id 与 name 必须**不同**（这里 id=sekaisync-connect，name=dsh-sekaisync-connect）。
+# 插件页的「行详情」把 rowId 与 moduleName 作为两行技术标识各渲染一次，只有
+# `rowId === rowTitle` 这一个去重判断；若 id === name，这两行会显示成同一个字符串，
+# 看起来像重复 mount。生态里的其它 bundle 同样把二者区分开
+# （dsh-zgit: id=zgit/name=dsh-zgit；dsh-better-sidebar: id=better-sidebar/name=dsh-better-sidebar）。
+# 改 id 会改变 settings.update 的命名空间（entryId）与 Remote 槽位键的 `<row id>` 部分，
+# 因此 lib/client.js 的 ROW_KEY 与之配套。
+#
 # 可覆盖字段（均可被同名环境变量覆盖：SEKAISYNC_STORE / _ROOT / _PYTHON / _PORT）：
 #   store         SekaiSync store 目录（含 kb/）
 #   root          sekaisync 仓库根目录（`python -m sekaisync` 的工作目录）
 #   python        python 可执行文件
 #   externalPort  复用已有服务器的探测端口（默认 8787）
 - insert:
-    - id: dsh-sekaisync-connect
+    - id: sekaisync-connect
       name: 'dsh-sekaisync-connect'
       config: {}

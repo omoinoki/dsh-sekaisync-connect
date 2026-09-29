@@ -97,6 +97,22 @@ for (const tool of new Set(registered)) {
   assert.ok(en.includes(tool) || zh.includes(tool), `tool ${tool} should be documented`)
 }
 
+// ── 行 id 与包名必须区分，且文档示例与 patch 实际一致 ──
+// 插件页把 rowId 与 moduleName 各渲染一行技术标识，去重只覆盖「rowId vs 标题」；
+// id === name 会让同一个字符串出现两次，看起来像重复 mount。
+const patchSource = read('cordis.patch.yml')
+const rowId = /^\s*-\s*id:\s*(\S+)/m.exec(patchSource)?.[1]
+assert.ok(rowId, 'the bundle patch must declare a row id')
+assert.notEqual(rowId, pkg.name, 'the row id must differ from the package name')
+for (const [label, text] of [['README.md', en], ['README.zh-CN.md', zh]]) {
+  assert.ok(text.includes(`id: ${rowId}`),
+    `${label} example must use the real row id "${rowId}"`)
+  // 只检查 YAML 示例块里的 id，避免误伤正文中说明迁移的旧 id 字样。
+  const examples = [...text.matchAll(/```yaml([\s\S]*?)```/g)].map((m) => m[1]).join('\n')
+  assert.equal(/id:\s*dsh-sekaisync-connect\b/.test(examples), false,
+    `${label} YAML example must not use the old id that collides with the package name`)
+}
+
 // ── 故障排查小节必须提到面板相关的失败模式 ──
 assert.ok(/Configure/.test(en), 'English troubleshooting must cover the missing Configure page')
 assert.ok(/配置/.test(zh), 'Chinese troubleshooting must cover the missing Configure page')

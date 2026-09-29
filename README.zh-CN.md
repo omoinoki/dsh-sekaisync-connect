@@ -9,7 +9,7 @@
 
 [English](README.md) | 中文
 
-[![Release](https://img.shields.io/badge/Release-0.3.7--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.8--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
@@ -70,12 +70,18 @@ dsh plugin --profile web add <本目录>
 亦可在 profile 的 patch 配置中进行覆盖，该配置在插件更新时不会被覆盖：
 
 ```yaml
-- id: dsh-sekaisync-connect
+- id: sekaisync-connect
   name: 'dsh-sekaisync-connect'
   config:
     store: 'D:\\sekaisync\\store'
     python: 'py'
 ```
+
+行的 `id` 刻意**不等于**包名。插件页会把「行 id」与「模块名」作为两行技术标识分别渲染，
+而去重判断只覆盖「行 id vs 标题」这一对——所以 `id` 与 `name` 相同时，同一个字符串会出现
+两次。请像其它 bundle 一样把二者区分开（`dsh-zgit` 用 `id: zgit`，`dsh-better-sidebar`
+用 `id: better-sidebar`）。这个 `id` 同时是面板写入所用的 `settings` 命名空间，因此已有
+`id: dsh-sekaisync-connect` 行的 profile 需要同步改成新 id。
 
 - HTTP 仅连接回环地址（loopback），显式禁止重定向。健康探测与错误响应分别限制为 64 KiB 与 4 KiB。默认常规响应预算为 128 MiB，覆盖常规 `limit=100` 与 `max_text_chars=200000` 的正文结果。`max_text_chars=0` 仍表示获取上游全量正文；若超大正文超出传输预算，可通过增大 `maxResponseBytes`（上限 1 GiB）或采取分批检索的方式处理。
 - 外部端口复用依然依赖 `/health` 的 ready/status 判定；因该端点未携带 store 唯一标识，配置时请确保对应端口指向正确的知识库实例。

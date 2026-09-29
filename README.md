@@ -9,7 +9,7 @@
 
 English | [中文](README.zh-CN.md)
 
-[![Release](https://img.shields.io/badge/Release-0.3.7--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.8--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
@@ -70,12 +70,19 @@ Precedence: **environment variables > profile row config > `SEKAISYNC_CONFIG` fi
 You can also override these settings in your own profile patch; plugin upgrades do not overwrite that layer:
 
 ```yaml
-- id: dsh-sekaisync-connect
+- id: sekaisync-connect
   name: 'dsh-sekaisync-connect'
   config:
     store: 'D:\\sekaisync\\store'
     python: 'py'
 ```
+
+The row `id` is deliberately **not** the package name. The plugin page renders a row's id and
+its module name as two separate technical lines, and only deduplicates the id against the row
+title — so an `id` equal to `name` shows the same string twice. Keep them distinct, as every
+other bundle does (`dsh-zgit` uses `id: zgit`, `dsh-better-sidebar` uses `id: better-sidebar`).
+This `id` is also the `settings` namespace the panel writes through, so a profile that already
+has the old `id: dsh-sekaisync-connect` row must be updated to match.
 
 - HTTP connects only to loopback and rejects redirects. Health and error responses are limited to 64 KiB and 4 KiB respectively. The default successful-response budget is 128 MiB, covering typical body results with `limit=100` and `max_text_chars=200000`. `max_text_chars=0` still means full text upstream; if an exceptionally large full-text response exceeds the transfer budget, increase `maxResponseBytes` (up to 1 GiB) or read in batches.
 - External-port reuse still follows the existing `/health` ready/status check. That endpoint carries no store identifier, so you must ensure the configured port serves the intended knowledge base.

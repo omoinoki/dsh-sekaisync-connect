@@ -150,8 +150,16 @@ assert.equal(slotRegistrations.length, 1, 'registers exactly one slot entry')
 
 const registrationOptions = slotRegistrations[0].options
 assert.equal(registrationOptions.name, 'plugins.row.config')
-assert.equal(registrationOptions.key, 'dsh-sekaisync-connect#dsh-sekaisync-connect',
-  'key must be <package name>#<row id> as the bundle patch declares it')
+// 槽位键必须是 `<包名>#<行 id>`，且行 id **不等于**包名。
+// 插件页的「行详情」把 rowId 与 moduleName 各渲染一行技术标识，去重只覆盖
+// 「rowId vs 标题」——id === name 时同一个字符串会显示两次，看起来像重复 mount。
+const patchSource = readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8')
+const rowId = /^\s*-\s*id:\s*(\S+)/m.exec(patchSource)?.[1]
+assert.ok(rowId, 'the bundle patch must declare a row id')
+assert.notEqual(rowId, pkg.name,
+  'the row id must differ from the package name (the plugin page would print it twice)')
+assert.equal(registrationOptions.key, `${pkg.name}#${rowId}`,
+  'the slot key must be <package name>#<row id>, matching the bundle patch')
 assert.equal(typeof slotRegistrations[0].Component, 'function', 'component is a function')
 
 // 官方约定（docs/subsystems/slots.md：Components never receive ctx）：组件需要的
