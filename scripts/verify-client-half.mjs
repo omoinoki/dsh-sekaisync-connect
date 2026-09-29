@@ -59,13 +59,19 @@ assert.equal(typeof registration.factory, 'function', 'factory must be a functio
 // 物化 factory（等价于模块表首次 require）
 const plugin = registration.factory(requireStub)
 assert.equal(typeof plugin.apply, 'function', 'client half must export apply')
-assert.deepEqual(plugin.inject, ['slots', 'locale', 'remote'], 'client half injects slots + locale + remote')
+assert.deepEqual(plugin.inject, ['remote', 'slots', 'locale'], 'client half injects remote + slots + locale')
+
+// 顶层 inject 里**不能**出现命名空间服务（`remote.sekaisync`）：它由 $mount 在运行时
+// 才注入，只能作为第二段 ctx.inject 的依赖。
+assert.equal(plugin.inject.includes('remote.sekaisync'), false,
+  'a namespace Remote service cannot be a top-level inject entry; it exists only after $mount')
 
 // ── 3. 在假上下文里跑 apply：应注册 locale、样式、Remote 贡献与插件面板槽位 ──
 const effects = []
 const localeCalls = []
 const slotRegistrations = []
 const slotInjections = []
+const childInjections = []
 const remoteMounts = []
 const remoteMethods = {}
 
@@ -99,7 +105,24 @@ const ctx = {
       }
       return async () => {}
     },
-    sekaisync: remoteMethods,
+    // 关键：`remote.sekaisync` 在 $mount 之前是**不存在的**。任何在 apply 期间
+    // 直接读取 ctx.remote.sekaisync 的代码都会在这里拿到 undefined 并炸掉，
+    // 从而复现「注册了但渲染崩溃 → 槽位条目被 abdicate → 面板消失」。
+    get sekaisync() {
+      if (remoteMounts.length === 0) {
+        throw new Error('cannot get property "sekaisync" without inject')
+      }
+      return remoteMethods
+    },
+  },
+  // 真实的 Cordis ctx.inject(deps, callback)：依赖齐备时同步调用 callback，
+  // 并把返回值当作 disposer（本桩只关心「子 fiber 里的注入调用」）。
+  inject: (deps, callback) => {
+    childInjections.push([...deps])
+    const result = callback(ctx)
+    if (result && typeof result.dispose === 'function') return result
+    if (typeof result === 'function') return Object.assign(Promise.resolve(), { dispose: result })
+    return Object.assign(Promise.resolve(), { dispose: async () => {} })
   },
   get: () => undefined,
 }
@@ -114,6 +137,11 @@ globalThis.document = {
 
 await plugin.apply(ctx)
 
+// 两段式挂载：第二段 ctx.inject 必须把命名空间服务纳入依赖，然后才注册 UI。
+assert.equal(childInjections.length, 1, 'apply performs exactly one second-phase ctx.inject')
+assert.deepEqual(childInjections[0], ['remote.sekaisync', 'slots', 'locale'],
+  'the UI phase injects the mounted namespace service (remote.sekaisync)')
+
 assert.equal(localeCalls.length, 1, 'registers exactly one locale namespace')
 assert.equal(localeCalls[0].ns, 'sekaisync')
 assert.ok(localeCalls[0].dicts.zh && localeCalls[0].dicts.en, 'both shipped locales are provided')
@@ -125,6 +153,17 @@ assert.equal(registrationOptions.name, 'plugins.row.config')
 assert.equal(registrationOptions.key, 'dsh-sekaisync-connect#dsh-sekaisync-connect',
   'key must be <package name>#<row id> as the bundle patch declares it')
 assert.equal(typeof slotRegistrations[0].Component, 'function', 'component is a function')
+
+// 官方约定（docs/subsystems/slots.md：Components never receive ctx）：组件需要的
+// 能力必须由注册项的 inject 工厂投影出来，而不是让组件自己去碰 ctx.remote.*。
+assert.equal(typeof registrationOptions.inject, 'function',
+  'the registration must supply services through its inject factory, never through ctx in the render closure')
+const injected = registrationOptions.inject()
+assert.ok(injected && typeof injected.remote === 'object', 'the inject face carries the projected remote facade')
+for (const method of ['state', 'detect', 'inspect', 'browse', 'pick', 'save', 'test']) {
+  assert.equal(typeof injected.remote[method], 'function', `inject face exposes remote.${method}()`)
+}
+assert.equal(Object.keys(injected.remote).length, 7, 'the inject face exposes exactly the seven panel actions')
 
 // ── 4. Remote 贡献必须满足 0.2.0-rc.1 客户端契约 ──
 assert.equal(remoteMounts.length, 1, 'mounts exactly one TYPERT_REMOTE contribution')
@@ -150,13 +189,19 @@ for (const d of descriptors) {
 // ── 5. 渲染两种 view，确认不抛错且摘要文案随状态变化 ──
 const Component = slotRegistrations[0].Component
 const t = ctx.locale.bind('sekaisync')
-const summary = Component({ t, view: 'summary', remote: ctx.remote.sekaisync })
+// 组件只接收注册项 inject 工厂投影出来的能力——这正是修复后的契约。
+const summary = Component({ t, view: 'summary', ...injected })
 assert.ok(summary, 'summary view renders something')
 assert.match(String(summary.children), /尚未选择/, 'summary says nothing is selected before state loads')
 
-const page = Component({ t, view: 'page', remote: ctx.remote.sekaisync })
+const page = Component({ t, view: 'page', ...injected })
 assert.ok(page, 'page view renders something')
 assert.ok(Array.isArray(page.children) && page.children.length > 0, 'page view has content')
+
+// 回归断言：渲染时若直接读取未注入的命名空间服务，必定抛错（这就是面板消失的成因）。
+const hostileCtx = { remote: { get sekaisync() { throw new Error('cannot get property "sekaisync" without inject') } } }
+assert.throws(() => hostileCtx.remote.sekaisync, /without inject/,
+  'reading an uninjected namespace service throws — the render closure must never do this')
 
 // useEffect 在桩里不执行，因此 state 仍为 null：页面必须能在无数据时渲染。
 assert.equal(page.children.filter((child) => child === null || child === undefined).length, 0,
