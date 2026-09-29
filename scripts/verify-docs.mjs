@@ -53,18 +53,21 @@ for (const pattern of BANNED) {
 }
 
 // ── 文档声称的每个面板控件都必须在字典里真实存在 ──
-// README 表格里提到的按钮名 → client.js 的字典键
+// README 表格里提到的按钮名 → client.js 的字典键。
+// 自动探测 / 选择文件夹 / 浏览 依赖宿主侧目录级权限，已移除，文档里也不得再出现。
 const controls = [
   ['Check', 'check'],
   ['Save and apply', 'save'],
-  ['Auto-detect', 'autoDetect'],
-  ['Choose folder…', 'chooseFolder'],
-  ['Browse', 'browse'],
   ['Test connection', 'test'],
 ]
 for (const [label, key] of controls) {
   assert.ok(en.includes(label), `README must mention the "${label}" control`)
   assert.ok(new RegExp(`\\b${key}:`).test(clientSource), `client dictionary must define "${key}" for "${label}"`)
+}
+// 被移除的控件不得在文档或字典里复活。
+for (const [label, key] of [['Auto-detect', 'autoDetect'], ['Choose folder…', 'chooseFolder'], ['Browse', 'browse']]) {
+  assert.equal(en.includes(label), false, `README must no longer advertise the removed "${label}" control`)
+  assert.equal(new RegExp(`\\b${key}:`).test(clientSource), false, `client dictionary must no longer define "${key}"`)
 }
 
 // ── 面板架构必须与代码一致：Typert Remote + settings 持久化 ──

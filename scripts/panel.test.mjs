@@ -11,9 +11,9 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DeployService, NAMESPACE, registerRemoteMethods } from '../lib/deploy-service.js'
+import { DeployService, NAMESPACE } from '../lib/deploy-service.js'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
-import { getPluginRoot } from '../lib/backend.js'
+import { getPluginRoot, onVolatileUpdate, setConfigOverride, setRuntimeConfig } from '../lib/backend.js'
 
 // 安全前提：这些测试绝不能写到真实的插件 config.local.json。
 // 它们全部依赖 SEKAISYNC_CONFIG_DIR 把配置目录指向临时目录；这里先断言该机制可用。
@@ -61,19 +61,27 @@ function makeService({ pluginRoot, entryId = 'dsh-sekaisync-connect', picker } =
   service.entryId = entryId
   service.config = {}
   return { service, updates, restore: () => {
+    // save() 会写入模块级的乐观覆盖层与 runtime 层；两者都是跨测试残留的状态，
+    // 必须在每个用例结束时清干净，否则后面的用例会读到上一个用例的 store。
+    setConfigOverride(null)
+    setRuntimeConfig(null)
     if (previous === undefined) delete process.env.SEKAISYNC_CONFIG_DIR
     else process.env.SEKAISYNC_CONFIG_DIR = previous
   } }
 }
 
-test('DeployService exposes the seven panel actions as Remote methods', () => {
-  registerRemoteMethods(DeployService, ['state', 'detect', 'inspect', 'browse', 'pick', 'save', 'test'])
+test('DeployService exposes exactly the four panel actions as Remote methods', () => {
   const methods = remoteMethods(Object.create(DeployService.prototype)).map((m) => m.method)
-  assert.deepEqual(methods.sort(), ['browse', 'detect', 'inspect', 'pick', 'save', 'state', 'test'])
+  assert.deepEqual(methods.sort(), ['inspect', 'save', 'state', 'test'])
   assert.equal(NAMESPACE, 'sekaisync')
+  // 自动探测 / 浏览 / 选择文件夹依赖宿主侧的目录级权限，已随面板按钮一并移除；
+  // 它们绝不能悄悄回到 Remote 面上。
+  for (const gone of ['detect', 'browse', 'pick']) {
+    assert.equal(methods.includes(gone), false, `${gone} must not be exposed any more`)
+  }
 })
 
-test('state reports effective values and parsed candidates', () => {
+test('state reports effective values without probing the filesystem for candidates', () => {
   const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
   const { root, store } = makeDeployment(pluginRoot)
   writeFileSync(join(pluginRoot, 'config.json'), JSON.stringify({ store: null, root: null, python: 'python', externalPort: 8787 }))
@@ -85,7 +93,7 @@ test('state reports effective values and parsed candidates', () => {
     assert.equal(state.root, root)
     assert.equal(state.current.ok, true)
     assert.equal(state.current.hasDatabase, true)
-    assert.ok(Array.isArray(state.candidates))
+    assert.equal('candidates' in state, false, 'state no longer scans for candidate deployments')
   } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
 })
 
@@ -136,52 +144,47 @@ test('save refuses an invalid path rather than pointing the KB at a broken direc
   } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
 })
 
-test('browse lists subdirectories with breadcrumbs and rejects an unusable path', () => {
-  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
-  mkdirSync(join(pluginRoot, 'inner', 'deep'), { recursive: true })
-  writeFileSync(join(pluginRoot, 'inner', 'file.txt'), 'x')
-  const { service, restore } = makeService({ pluginRoot })
-  try {
-    const listing = service.browse(pluginRoot)
-    assert.equal(listing.path, pluginRoot)
-    const names = listing.entries.map((e) => e.name)
-    assert.ok(names.includes('inner'))
-    assert.equal(names.includes('file.txt'), false, 'only directories are listed')
-    assert.ok(listing.crumbs.length >= 1)
+// ── 修复回归：保存后「生效 store / 生效 root」必须立刻变，而不是等重启 ──
+// settings.update 对 volatile-only 变更不会重新 apply，只就地改写 Volatile 引用
+// 并异步发 loader/volatile-update。若 state() 读的是 apply 那一刻的快照，
+// 面板会一直显示旧路径。这里断言 save 之后 state() 立即反映新值。
 
-    assert.throws(() => service.browse(join(pluginRoot, 'nope')))
+test('save makes state() report the new store immediately, without a plugin restart', async () => {
+  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
+  const first = makeDeployment(join(pluginRoot, 'a'))
+  const second = makeDeployment(join(pluginRoot, 'b'))
+  writeFileSync(join(pluginRoot, 'config.json'), JSON.stringify({ store: null, root: null }))
+  writeFileSync(join(pluginRoot, 'config.local.json'), JSON.stringify({ store: first.store, root: first.root }))
+  const { service, updates, restore } = makeService({ pluginRoot })
+  try {
+    assert.equal(service.state().store, first.store, 'starts on the first deployment')
+
+    await service.save(second.store)
+
+    assert.equal(updates.length, 1, 'the write reached settings.update')
+    // 关键断言：同一进程、同一实例，没有重新 apply，state() 已是新值。
+    assert.equal(service.state().store, second.store, 'state() reflects the saved store at once')
+    assert.equal(service.state().root, second.root, 'and the derived root too')
   } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
 })
 
-test('pick degrades gracefully when no directory picker is mounted', async () => {
+test('a saved store survives the volatile-update event that clears the optimistic overlay', async () => {
   const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
+  const { root, store } = makeDeployment(pluginRoot)
+  writeFileSync(join(pluginRoot, 'config.json'), JSON.stringify({ store: null, root: null }))
   const { service, restore } = makeService({ pluginRoot })
   try {
-    const result = await service.pick()
-    assert.equal(result.available, false)
-    assert.equal(result.reason, 'no-picker')
-  } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
-})
-
-test('pick opens a native chooser when present and reports cancellation', async () => {
-  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
-  let behaviour = { kind: 'native', pick: async () => null }
-  const { service, restore } = makeService({ pluginRoot, picker: { capability: () => behaviour } })
-  try {
-    const cancelled = await service.pick()
-    assert.equal(cancelled.available, true)
-    assert.equal(cancelled.cancelled, true)
-
-    behaviour = { kind: 'browse', list: async () => ({}) }
-    const browseMode = await service.pick()
-    assert.equal(browseMode.available, false, 'browse mode does not open an OS dialog')
-
-    behaviour = { kind: 'native', pick: async () => pluginRoot }
-    const chosen = await service.pick()
-    assert.equal(chosen.cancelled, false)
-    assert.equal(chosen.path, pluginRoot)
-    assert.ok(chosen.inspected, 'the chosen path is classified for the panel')
-  } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
+    // 模拟真实时序：Volatile 引用随后才被 loader 更新。
+    setRuntimeConfig({ store: { get: () => store }, root: { get: () => root } })
+    await service.save(store)
+    onVolatileUpdate()
+    assert.equal(service.state().store, store, 'the authoritative value comes from the Volatile refs')
+    assert.equal(service.state().root, root)
+  } finally {
+    setRuntimeConfig(null)
+    setConfigOverride(null)
+    restore(); rmSync(pluginRoot, { recursive: true, force: true })
+  }
 })
 
 test('test action returns a structured failure instead of throwing when the store is unusable', async () => {

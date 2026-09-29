@@ -9,7 +9,7 @@
 
 English | [中文](README.zh-CN.md)
 
-[![Release](https://img.shields.io/badge/Release-0.3.6--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.7--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
@@ -91,11 +91,12 @@ Open **Plugins → Installed → dsh-sekaisync-connect → the row's Configure c
 | Control | What it does |
 | --- | --- |
 | Path field + **Check** | Classifies the path and reports whether it is a store, a repository root, or a `kb/` directory — plus database size, `kb/` entry count, and the `freshness` payload when present |
-| **Save and apply** | Validates the path, then persists it through the official `settings` service into the profile's `cordis.patch.yml` and hot-reloads the backend — no restart required |
-| **Auto-detect** | Scans bounded, local-only locations (environment variables, `cwd`, common home directories, and siblings of the plugin directory) for candidate deployments |
-| **Choose folder…** | Opens the OS folder chooser when the host mounted the native directory picker |
-| **Browse** | In-app directory browsing, used when no native picker is available (remote or headless sessions) |
+| **Save and apply** | Validates the path, then persists it through the official `settings` service into the profile's `cordis.patch.yml` and applies it live — the effective `store` / `root` readout updates immediately, no restart required |
 | **Test connection** | Performs a real `/health` request against the selected deployment and reports latency and readiness |
+
+The **Effective store** / **Effective root** readout tracks the path field as you type (debounced),
+and shows a **Not saved yet** marker whenever the typed path differs from the saved one — so a change
+is visible before you commit to it.
 
 The panel reads and writes the plugin's own **Cordis Config** (`store` / `root`, both declared
 `.volatile()` so they are live-editable). The value shown is what the runtime resolves after the full
@@ -105,6 +106,10 @@ precedence chain: environment variables > profile row config > `SEKAISYNC_CONFIG
 Constraints, by design:
 
 - The panel writes only `store` and `root`, through the official `settings` service, and only after the path passes classification. `python` is deliberately **not** editable from the panel: exposing an executable path over HTTP would put arbitrary program execution on a web page. The worst a panel write can do is point the knowledge base at another directory.
+- The panel exposes **no** auto-detection, folder chooser, or directory browser. Those actions need
+  host-side directory-level permissions that a plugin row cannot rely on, so they were removed rather
+  than left as buttons that do nothing. Type the path instead; `Check` classifies it and tells you what
+  it found.
 - The panel backend is a **Typert Remote** service (namespace `sekaisync`) registered in the profile row's own fiber, mirroring the official `dsh-experimental-voice-input-bundle`/`dsh-api-settings-controller` pattern. The browser half mounts a hand-written `TYPERT_REMOTE` contribution and calls `ctx.remote.sekaisync.*` — it no longer hand-rolls HTTP routes. Writes go through `settings.update`, which the framework fences with the same Host/Origin and cookie authentication as every `/api` surface, and which serializes writes and validates values before persistence. A profile without a `settings` service (a pure CLI composition) simply never mounts the panel, while the 10 tools keep working.
 - The panel is an addition, not a requirement. Without it, the file-based configuration above works exactly as before.
 

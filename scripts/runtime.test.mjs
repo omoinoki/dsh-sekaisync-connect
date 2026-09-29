@@ -163,7 +163,14 @@ test('HTTP contract, generation invalidation, deadlines and tool validation', as
 
   const tools = []
   const { apply, BUDGETS } = await import('../lib/index.js')
-  apply({ tools: { register: (tool) => { tools.push(tool); return () => {} } }, effect: (fn) => fn(), inject: () => () => {} })
+  // ctx.on 是必需的：apply 会在 loader/volatile-update 上挂监听器，用来在
+  // 「volatile-only 改动不重启插件行」时丢弃派生的缓存。
+  apply({
+    tools: { register: (tool) => { tools.push(tool); return () => {} } },
+    effect: (fn) => fn(),
+    inject: () => () => {},
+    on: () => () => {},
+  })
   assert.equal(tools.length, 10)
   const lookup = tools.find((tool) => tool.name === 'sekai_lookup')
   assert.match(await lookup.execute({ query: {} }), /类型/)

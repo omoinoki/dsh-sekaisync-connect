@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { classifyPath, detectCandidates, listDirectories, formatBytes } from '../lib/deploy.js'
+import { classifyPath, formatBytes } from '../lib/deploy.js'
 
 /** 造一个最小的可用 store：<root>/store/kb/sekaisync.db */
 function makeStore(root, { withDb = true, extraKb = [] } = {}) {
@@ -82,58 +82,13 @@ test('classifyPath accepts a repo root whose store is not built yet, and tolerat
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('detectCandidates finds deployments under an env var and a scanned projects root', () => {
-  const base = mkdtempSync(join(tmpdir(), 'sks-detect-'))
-  try {
-    const envStore = makeStore(join(base, 'from-env'))
-    const scanRoot = join(base, 'dsh_projects')
-    const scanned = makeStore(join(scanRoot, 'sekaisync-handoff'))
-    // 无数据库的那份应排在后面
-    makeStore(join(scanRoot, 'sekaisync-empty'), { withDb: false })
-
-    const candidates = detectCandidates({
-      pluginRoot: join(base, 'plugin'),
-      cwd: join(base, 'elsewhere'),
-      env: { SEKAISYNC_STORE: envStore },
-    })
-    const paths = candidates.map((c) => c.path)
-    assert.ok(paths.includes(envStore), 'env store should be a candidate')
-    assert.ok(paths.includes(scanned), 'scanned store should be a candidate')
-
-    const withDb = candidates.filter((c) => c.hasDatabase)
-    assert.ok(withDb.every((c, i) => i === 0 || withDb[i - 1].databaseBytes >= c.databaseBytes), 'larger DBs sort first')
-    assert.equal(candidates.length, new Set(paths).size, 'candidates are de-duplicated')
-    assert.ok(candidates.every((c) => existsSync(join(c.path, 'kb'))))
-  } finally { rmSync(base, { recursive: true, force: true }) }
-})
-
-test('detectCandidates stays bounded and never throws on unreadable guesses', () => {
-  const base = mkdtempSync(join(tmpdir(), 'sks-detect-'))
-  try {
-    const candidates = detectCandidates({
-      pluginRoot: join(base, 'plugin'),
-      cwd: join(base, 'missing'),
-      env: { SEKAISYNC_STORE: join(base, 'also-missing') },
-    })
-    assert.ok(Array.isArray(candidates))
-    assert.ok(candidates.length <= 12, 'result is capped')
-  } finally { rmSync(base, { recursive: true, force: true }) }
-})
-
-test('listDirectories lists subdirectories with breadcrumbs and rejects an unusable path', () => {
-  const base = mkdtempSync(join(tmpdir(), 'sks-list-'))
-  try {
-    mkdirSync(join(base, 'inner', 'deep'), { recursive: true })
-    writeFileSync(join(base, 'inner', 'file.txt'), 'x')
-    const listing = listDirectories(base)
-    assert.equal(listing.path, base)
-    assert.ok(listing.crumbs.length >= 1)
-    const names = listing.entries.map((e) => e.name)
-    assert.ok(names.includes('inner'))
-    assert.equal(names.includes('file.txt'), false, 'only directories are listed')
-
-    assert.throws(() => listDirectories(join(base, 'nope')), /不是目录|ENOENT|找不到/)
-  } finally { rmSync(base, { recursive: true, force: true }) }
+test('the removed panel helpers are gone: lib/deploy.js no longer walks the filesystem', async () => {
+  // 自动探测与目录枚举只是面板上被删掉的两个按钮的后端。它们必须真正消失，
+  // 而不是变成没人调用的死代码继续留在模块导出面上。
+  const mod = await import('../lib/deploy.js')
+  assert.equal(mod.detectCandidates, undefined, 'detectCandidates must not be exported any more')
+  assert.equal(mod.listDirectories, undefined, 'listDirectories must not be exported any more')
+  assert.deepEqual(Object.keys(mod).sort(), ['classifyPath', 'formatBytes'])
 })
 
 test('formatBytes is presentation-only and total', () => {

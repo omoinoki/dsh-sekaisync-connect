@@ -9,7 +9,7 @@
 
 [English](README.md) | 中文
 
-[![Release](https://img.shields.io/badge/Release-0.3.6--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.7--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
@@ -91,17 +91,20 @@ dsh plugin --profile web add <本目录>
 | 控件 | 作用 |
 | --- | --- |
 | 路径输入框 + **检查** | 判定该路径是 store、仓库根还是 `kb/` 目录，并给出数据库体积、`kb/` 条目数，以及存在时的 `freshness` 内容 |
-| **保存并生效** | 校验路径后，经官方 `settings` 服务持久化到 profile 的 `cordis.patch.yml` 并热重载后端——无需重启 DSH |
-| **自动探测** | 在有限的本地位置（环境变量、`cwd`、常见主目录、插件目录的兄弟目录）寻找候选部署 |
-| **选择文件夹…** | 当宿主挂载了原生目录选择器时，打开系统文件夹对话框 |
-| **浏览** | 应用内目录浏览；无原生选择器时（远程或无头会话）使用 |
+| **保存并生效** | 校验路径后，经官方 `settings` 服务持久化到 profile 的 `cordis.patch.yml` 并即时生效——「生效 store / 生效 root」当场更新，无需重启 DSH |
 | **测试连接** | 对选定的部署真实发起一次 `/health` 请求，报告延迟与就绪状态 |
+
+**生效 store / 生效 root** 会随输入框的路径实时更新（250ms 去抖）；当输入的路径与已保存的
+不一致时，上方会显示**「尚未保存」**标记——改动在提交之前就看得见。
 
 面板读写的是插件自己的 **Cordis Config**（`store` / `root`，二者都声明为 `.volatile()`，可在线编辑）。显示的值是运行时按完整优先级链解析后的结果：环境变量 > profile 行 config > `SEKAISYNC_CONFIG` > `config.local.json` > `config.json` > 自动发现。
 
 刻意的边界：
 
 - 面板只写 `store` 与 `root` 两个字段，且必须通过路径分类之后才经官方 `settings` 服务落盘。`python` **刻意不允许**从面板修改：把一个可执行文件路径暴露在 HTTP 上，等于把「任意程序执行」搬到网页上。面板写入最坏的结果只是把知识库指向另一个目录。
+- 面板**不提供**自动探测、选择文件夹与目录浏览。这三个动作依赖宿主侧的目录级权限，而插件行无法
+  可靠地拿到这些权限；与其留几个按下去没反应的按钮，不如删掉。路径请直接输入，`Check` 会判定它
+  到底是什么。
 - 面板后端是一个 **Typert Remote** 服务（命名空间 `sekaisync`），注册在本 profile 行自己的 fiber 里，与官方 `dsh-experimental-voice-input-bundle` / `dsh-api-settings-controller` 的做法一致。浏览器半侧挂载一份手写的 `TYPERT_REMOTE` 贡献，通过 `ctx.remote.sekaisync.*` 调用——不再手写 HTTP 路由。写入走 `settings.update`，由框架用与所有 `/api` 表面相同的 Host/Origin + cookie 栅栏把关，并串行化写入、写入前先校验取值。没有 `settings` 服务的组合（纯 CLI）不会挂载面板，而 10 个工具照常可用。
 - 面板是增强项而非必需项。没有它时，上面的文件配置方式完全照旧可用。
 

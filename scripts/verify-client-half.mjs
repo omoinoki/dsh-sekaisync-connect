@@ -160,18 +160,22 @@ assert.equal(typeof registrationOptions.inject, 'function',
   'the registration must supply services through its inject factory, never through ctx in the render closure')
 const injected = registrationOptions.inject()
 assert.ok(injected && typeof injected.remote === 'object', 'the inject face carries the projected remote facade')
-for (const method of ['state', 'detect', 'inspect', 'browse', 'pick', 'save', 'test']) {
+for (const method of ['state', 'inspect', 'save', 'test']) {
   assert.equal(typeof injected.remote[method], 'function', `inject face exposes remote.${method}()`)
 }
-assert.equal(Object.keys(injected.remote).length, 7, 'the inject face exposes exactly the seven panel actions')
+assert.equal(Object.keys(injected.remote).length, 4, 'the inject face exposes exactly the four panel actions')
+// 被删除的目录级动作不得复活。
+for (const gone of ['detect', 'browse', 'pick']) {
+  assert.equal(gone in injected.remote, false, `remote.${gone} must be gone (host-side directory permission)`)
+}
 
 // ── 4. Remote 贡献必须满足 0.2.0-rc.1 客户端契约 ──
 assert.equal(remoteMounts.length, 1, 'mounts exactly one TYPERT_REMOTE contribution')
 const contribution = remoteMounts[0]
 assert.equal(contribution.package, 'dsh-sekaisync-connect')
 const descriptors = contribution.descriptors
-assert.deepEqual(descriptors.map((d) => d.method).sort(), ['browse', 'detect', 'inspect', 'pick', 'save', 'state', 'test'],
-  'the Remote contribution exposes the seven panel actions')
+assert.deepEqual(descriptors.map((d) => d.method).sort(), ['inspect', 'save', 'state', 'test'],
+  'the Remote contribution exposes the four panel actions')
 for (const d of descriptors) {
   assert.equal(d.service, 'deploy')
   assert.equal(d.namespace, 'sekaisync')
@@ -212,8 +216,28 @@ const zhKeys = Object.keys(localeCalls[0].dicts.zh).sort()
 const enKeys = Object.keys(localeCalls[0].dicts.en).sort()
 assert.deepEqual(zhKeys, enKeys, 'zh and en dictionaries must expose the same keys')
 
+// ── 6. 主题安全：主按钮不得写死字色 ──
+// 深色主题下 brand-primary 是亮色，写死 #fff 会让「保存并生效」整个看不见。
+// 正确做法是让文字取 bg-base（brand-primary 在各主题里都画在 bg-base 之上）。
+const primaryRule = /\.sks-btn-primary\{([^}]*)\}/.exec(source)
+assert.ok(primaryRule, 'the primary button rule must exist')
+const primaryCss = primaryRule[1]
+assert.equal(/#fff|#ffffff|white\b/i.test(primaryCss), false,
+  'the primary button must not hardcode a white label colour')
+assert.match(primaryCss, /color:var\(--dsw-alias-bg-base\)/,
+  'the primary button label must use the theme base colour so it inverts with the theme')
+assert.match(primaryCss, /background:var\(--dsw-alias-brand-primary\)/)
+// 整个面板的自有 CSS 只允许引用宿主主题变量，不得出现字面色值。
+// 只在 CSS 模板字面量里扫，并先剥掉 /* */ 注释——注释里会提到反例（“不要写死 #fff”）。
+const cssMatch = /const CSS = `([\s\S]*?)`/.exec(source)
+assert.ok(cssMatch, 'the panel stylesheet must be a CSS template literal')
+const cssDeclarations = cssMatch[1].replace(/\/\*[\s\S]*?\*\//g, '')
+const literalColours = cssDeclarations.match(/#[0-9a-f]{3,8}\b/gi) || []
+assert.deepEqual(literalColours, [], `panel CSS must not hardcode colours, found: ${literalColours.join(', ')}`)
+
 console.log('client-half verification passed')
 console.log('  slot key  :', registrationOptions.key)
 console.log('  locales   :', localeCalls[0].ns, '/', Object.keys(localeCalls[0].dicts).join(','))
 console.log('  dict keys :', zhKeys.length)
 console.log('  remote    :', descriptors.map((d) => d.method).sort().join(', '))
+console.log('  primary   : theme-safe (bg-base label on brand-primary fill)')

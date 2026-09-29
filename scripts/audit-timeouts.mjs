@@ -12,6 +12,8 @@ idx.apply({
   tools: { register: (d) => { TOOLS.push(d); return () => {} } },
   effect: (fn) => { fn(); return () => {} },
   inject: () => () => {},
+  // apply 会在 loader/volatile-update 上挂监听器（volatile-only 改动不重启插件行）。
+  on: () => () => {},
 })
 
 // 内层预算来自 index.js 导出的 BUDGETS（不再用正则解析源码），

@@ -39,6 +39,10 @@ const ctx = {
     if (deps.includes('settings')) return callback(settingsCtx)
     return () => {}
   },
+  // apply 订阅 loader/volatile-update：volatile-only 的配置改动不会重新 apply，
+  // 只能靠这个事件丢弃派生的缓存。这里记录订阅以便断言它确实建立了。
+  eventListeners: [],
+  on: (event, listener) => { ctx.eventListeners.push({ event, listener }); return () => {} },
   get: () => undefined,
 }
 
@@ -79,15 +83,24 @@ const DeployService = childPlugins[0]
 assert.equal(typeof DeployService, 'function', 'the panel backend is a class/function')
 
 // 方法必须带 Remote 标记（registerRemoteMethods 手动打的标，等价于 @Remote）。
+// 只保留四个：detect/browse/pick 依赖宿主侧目录级权限，已随面板按钮一并删除。
 const instance = Object.create(DeployService.prototype)
 const methods = remoteMethods(instance).map((m) => m.method)
-assert.deepEqual(methods.sort(), ['browse', 'detect', 'inspect', 'pick', 'save', 'state', 'test'],
-  'DeployService exports the seven panel actions as Remote methods')
+assert.deepEqual(methods.sort(), ['inspect', 'save', 'state', 'test'],
+  'DeployService exposes exactly the four permission-independent panel actions')
 
 // Config 必须声明 store/root 为 volatile（settings 表单投影只认 .volatile()），python 不 volatile
 assert.equal(Config.dict.store.meta.volatile, true, 'store must be volatile')
 assert.equal(Config.dict.root.meta.volatile, true, 'root must be volatile')
 assert.notEqual(Config.dict.python.meta.volatile, true, 'python must NOT be volatile (RCE guard)')
+
+// ── volatile 生效链路 ──
+// store/root 是 volatile：面板写它们时 loader **不会**重新 apply，只就地改写
+// Volatile 引用并发 loader/volatile-update。因此 apply 必须订阅该事件来丢弃
+// 派生缓存（store 解析、活动索引、热词表、子进程），否则面板保存后仍读到旧路径。
+const volatileSub = ctx.eventListeners.find((e) => e.event === 'loader/volatile-update')
+assert.ok(volatileSub, 'apply must subscribe to loader/volatile-update for volatile config writes')
+assert.equal(typeof volatileSub.listener, 'function', 'the volatile listener is callable')
 
 // ── 生命周期：effects 应能在不抛错的前提下全部释放 ──
 assert.ok(effects.length >= 11, `expected effect cleanup for 10 tools + lifecycle, got ${effects.length}`)
