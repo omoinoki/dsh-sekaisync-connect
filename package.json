@@ -1,7 +1,7 @@
 {
   "name": "dsh-sekaisync-connect",
-  "version": "0.3.4-alpha",
-  "description": "SekaiSync 知识库的 DeepSeek Harness 直连模块：零依赖、零构建、token 最小化。插件拉起 sekaisync HTTP 服务并暴露 10 个紧凑工具（含动态热词探针、活动简称/箱活名统一解析与跨语言用语穿透），并在插件面板中提供部署路径选择。",
+  "version": "0.3.5-alpha",
+  "description": "SekaiSync 知识库的 DeepSeek Harness 直连模块：零构建、token 最小化。插件拉起 sekaisync HTTP 服务并暴露 10 个紧凑工具（含动态热词探针、活动简称/箱活名统一解析与跨语言用语穿透），并在插件面板中提供部署路径选择。",
   "type": "module",
   "scripts": {
     "test": "node --test scripts/runtime.test.mjs scripts/config.test.mjs scripts/deploy.test.mjs scripts/panel.test.mjs",
@@ -37,8 +37,16 @@
     "node": ">=20"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-tools": ">=0.1.5-rc.2 <0.3.0-0"
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/schemastery": "~3.18.4",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-settings": ">=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.1 <0.3.0-0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/schemastery": "3.18.4",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.0-rc.1"
   },
   "files": [
     "lib",

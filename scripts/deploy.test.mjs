@@ -1,11 +1,11 @@
-// lib/deploy.js 的单元测试：路径分类、候选探测、配置分层与原子写入。
+// lib/deploy.js 的单元测试：路径分类、候选探测与有界目录列表。
 // 全部离线（不联网、不起 sekaisync 子进程），只碰临时目录。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { classifyPath, detectCandidates, inspectDeployment, writeLocalConfig, formatBytes } from '../lib/deploy.js'
+import { classifyPath, detectCandidates, listDirectories, formatBytes } from '../lib/deploy.js'
 
 /** 造一个最小的可用 store：<root>/store/kb/sekaisync.db */
 function makeStore(root, { withDb = true, extraKb = [] } = {}) {
@@ -120,77 +120,20 @@ test('detectCandidates stays bounded and never throws on unreadable guesses', ()
   } finally { rmSync(base, { recursive: true, force: true }) }
 })
 
-test('inspectDeployment reports the winning layer and flags shadowing', () => {
-  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-inspect-'))
+test('listDirectories lists subdirectories with breadcrumbs and rejects an unusable path', () => {
+  const base = mkdtempSync(join(tmpdir(), 'sks-list-'))
   try {
-    writeFileSync(join(pluginRoot, 'config.json'), JSON.stringify({ store: null, root: null, python: 'python', externalPort: 8787 }))
+    mkdirSync(join(base, 'inner', 'deep'), { recursive: true })
+    writeFileSync(join(base, 'inner', 'file.txt'), 'x')
+    const listing = listDirectories(base)
+    assert.equal(listing.path, base)
+    assert.ok(listing.crumbs.length >= 1)
+    const names = listing.entries.map((e) => e.name)
+    assert.ok(names.includes('inner'))
+    assert.equal(names.includes('file.txt'), false, 'only directories are listed')
 
-    // 1) 只有随包默认值 → 来源是 default
-    let state = inspectDeployment({ pluginRoot, env: {}, runtime: null, effective: { store: null } })
-    assert.equal(state.fields.store.source, 'default')
-    assert.equal(state.fields.store.shadowedBy, null)
-
-    // 2) config.local.json 生效 → 来源 local-file，且不算被遮蔽
-    writeFileSync(join(pluginRoot, 'config.local.json'), JSON.stringify({ store: 'C:\\local', root: 'C:\\local' }))
-    state = inspectDeployment({ pluginRoot, env: {}, runtime: null, effective: { store: 'C:\\local' } })
-    assert.equal(state.fields.store.source, 'local-file')
-    assert.equal(state.fields.store.shadowedBy, null)
-    assert.equal(state.writable.store, true)
-
-    // 3) profile 行 config 更高 → 遮蔽本机文件（面板必须如实提示「保存了也不生效」）
-    state = inspectDeployment({ pluginRoot, env: {}, runtime: { store: 'C:\\profile' }, effective: { store: 'C:\\profile' } })
-    assert.equal(state.fields.store.source, 'profile-row')
-    assert.equal(state.fields.store.shadowedBy, 'profile-row')
-    assert.equal(state.writable.store, false)
-
-    // 4) 环境变量最高
-    state = inspectDeployment({ pluginRoot, env: { SEKAISYNC_STORE: 'C:\\env' }, runtime: { store: 'C:\\profile' }, effective: { store: 'C:\\env' } })
-    assert.equal(state.fields.store.source, 'env')
-    assert.equal(state.fields.store.detail, 'SEKAISYNC_STORE')
-  } finally { rmSync(pluginRoot, { recursive: true, force: true }) }
-})
-
-test('writeLocalConfig preserves unrelated keys and is atomic', () => {
-  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-write-'))
-  try {
-    writeFileSync(join(pluginRoot, 'config.local.json'), JSON.stringify({ store: 'old', python: 'python3', externalPort: 9000 }))
-    const next = writeLocalConfig(pluginRoot, { store: 'new-store', root: 'new-root' })
-    assert.equal(next.store, 'new-store')
-    assert.equal(next.root, 'new-root')
-    assert.equal(next.python, 'python3', 'unrelated keys survive')
-    assert.equal(next.externalPort, 9000, 'unrelated keys survive')
-
-    const onDisk = JSON.parse(readFileSync(join(pluginRoot, 'config.local.json'), 'utf8'))
-    assert.deepEqual(onDisk, next)
-    // 没有留下临时文件
-    const leftovers = existsSync(join(pluginRoot, 'config.local.json')) &&
-      readFileSync(join(pluginRoot, 'config.local.json'), 'utf8').includes('.tmp')
-    assert.equal(leftovers, false)
-  } finally { rmSync(pluginRoot, { recursive: true, force: true }) }
-})
-
-test('writeLocalConfig refuses fields outside store/root and refuses to clobber broken JSON', () => {
-  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-write-'))
-  try {
-    // python 是可执行文件路径：面板不得改写（否则等于把任意程序执行暴露给网页）
-    assert.throws(() => writeLocalConfig(pluginRoot, { python: 'evil.exe' }), /不允许写入字段/)
-    assert.throws(() => writeLocalConfig(pluginRoot, { externalPort: 1 }), /不允许写入字段/)
-
-    writeFileSync(join(pluginRoot, 'config.local.json'), '{ this is not json')
-    assert.throws(() => writeLocalConfig(pluginRoot, { store: 'x' }), /解析失败，拒绝覆盖/)
-    // 坏文件被原样保留，便于人工修复
-    assert.equal(readFileSync(join(pluginRoot, 'config.local.json'), 'utf8'), '{ this is not json')
-  } finally { rmSync(pluginRoot, { recursive: true, force: true }) }
-})
-
-test('writeLocalConfig removes a field when given null/empty', () => {
-  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-write-'))
-  try {
-    writeFileSync(join(pluginRoot, 'config.local.json'), JSON.stringify({ store: 'a', root: 'b' }))
-    const next = writeLocalConfig(pluginRoot, { root: null })
-    assert.equal(next.root, undefined)
-    assert.equal(next.store, 'a')
-  } finally { rmSync(pluginRoot, { recursive: true, force: true }) }
+    assert.throws(() => listDirectories(join(base, 'nope')), /不是目录|ENOENT|找不到/)
+  } finally { rmSync(base, { recursive: true, force: true }) }
 })
 
 test('formatBytes is presentation-only and total', () => {

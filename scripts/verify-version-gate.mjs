@@ -58,10 +58,10 @@ export { evaluatePluginCompatibility }
   }
   console.log(`\n✅ 本机 ${runtimeVersion}：闸门通过`)
 
-  // ── 3. 声明区间：0.1.5-rc.2 ~ 0.2.x 放行，0.3.x 保持 fail-closed ──
+  // ── 3. 声明区间：0.2.x 放行，0.1.x 与 0.3.x 保持 fail-closed ──
   const expectations = [
-    ['0.1.5-rc.2', true], ['0.1.7-rc.2', true], ['0.1.8', true],
-    ['0.2.0-rc.1', true], ['0.2.1', true], ['0.2.9', true],
+    ['0.1.5-rc.2', false], ['0.1.7-rc.2', false], ['0.1.8', false],
+    ['0.2.0-rc.1', true], ['0.2.0', true], ['0.2.1', true], ['0.2.9', true],
     ['0.3.0', false], ['0.3.0-rc.1', false], ['1.0.0', false], ['0.1.4', false],
   ]
   console.log('\n=== 各版本闸门判定 ===')

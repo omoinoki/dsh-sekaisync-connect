@@ -163,7 +163,7 @@ test('HTTP contract, generation invalidation, deadlines and tool validation', as
 
   const tools = []
   const { apply, BUDGETS } = await import('../lib/index.js')
-  apply({ tools: { register: (tool) => { tools.push(tool); return () => {} } }, effect: (fn) => fn() })
+  apply({ tools: { register: (tool) => { tools.push(tool); return () => {} } }, effect: (fn) => fn(), inject: () => () => {} })
   assert.equal(tools.length, 10)
   const lookup = tools.find((tool) => tool.name === 'sekai_lookup')
   assert.match(await lookup.execute({ query: {} }), /类型/)

@@ -9,7 +9,7 @@
 
 [English](README.md) | 中文
 
-[![Release](https://img.shields.io/badge/Release-0.3.4--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.5--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
@@ -39,17 +39,16 @@ dsh plugin --profile web add <本目录>
 
 | 运行时 | 判定 |
 | --- | --- |
-| `0.1.5-rc.2` | allow |
-| `0.1.7-rc.2` | allow |
-| `0.1.8` | allow |
-| `0.2.0-rc.1` | allow（已实测：工具、面板路由与真实查询都在该运行时上跑通） |
+| `0.1.x` | **DENY**（官方面板机制——`.volatile()` Config + `settings` + Typert Remote——在 `0.2.0-rc.1` 之前不存在） |
+| `0.2.0-rc.1` | allow（已实测：工具、面板与真实查询都在该运行时上跑通） |
 | `0.2.x` | allow |
 | `0.3.0` / `0.3.0-rc.1` / `1.0.0` | **DENY**（未验证的版本 fail-closed，用 `dsh plugin allow-version` 豁免） |
 
 闸门是 `evaluatePluginCompatibility`，只读取 `peerDependencies`。本插件声明
-`@deepseek-ai/dsh-tools: ">=0.1.5-rc.2 <0.3.0-0"`。注意结尾的 `-0`：若只写 `<0.3.0`，
-`0.3.0-rc.1` 仍会被放行——因为 semver 把预发布排在正式版**之前**。
-`scripts/verify-version-gate.mjs` 每次发布都会用运行时自己的实现对着这张表复跑一遍。
+`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-settings`、`@deepseek-ai/dsh-typert-protocol` 均为
+`">=0.2.0-rc.1 <0.3.0-0"`。注意结尾的 `-0`：若只写 `<0.3.0`，`0.3.0-rc.1` 仍会被放行——
+因为 semver 把预发布排在正式版**之前**。`scripts/verify-version-gate.mjs` 每次发布都会用
+运行时自己的实现对着这张表复跑一遍。
 
 若某次运行时升级把本插件禁用了，症状是工具整体消失、面板也不加载：组合在插件代码运行**之前**
 就把这个 bundle 拒掉了。
@@ -92,18 +91,18 @@ dsh plugin --profile web add <本目录>
 | 控件 | 作用 |
 | --- | --- |
 | 路径输入框 + **检查** | 判定该路径是 store、仓库根还是 `kb/` 目录，并给出数据库体积、`kb/` 条目数，以及存在时的 `freshness` 内容 |
-| **保存并生效** | 写入 `config.local.json` 并热重载后端——新路径立刻生效，无需重启 DSH |
+| **保存并生效** | 校验路径后，经官方 `settings` 服务持久化到 profile 的 `cordis.patch.yml` 并热重载后端——无需重启 DSH |
 | **自动探测** | 在有限的本地位置（环境变量、`cwd`、常见主目录、插件目录的兄弟目录）寻找候选部署 |
 | **选择文件夹…** | 当宿主挂载了原生目录选择器时，打开系统文件夹对话框 |
 | **浏览** | 应用内目录浏览；无原生选择器时（远程或无头会话）使用 |
 | **测试连接** | 对选定的部署真实发起一次 `/health` 请求，报告延迟与就绪状态 |
 
-表单上方的「来源」一行标出当前生效的配置层，这一点很重要：优先级是环境变量 > profile 行 config > `SEKAISYNC_CONFIG` > `config.local.json` > `config.json`。若更高层已经钉死 `store`，表单会显示**被上层覆盖**——保存仍会写入文件，但在该层改变之前新值不会生效。
+面板读写的是插件自己的 **Cordis Config**（`store` / `root`，二者都声明为 `.volatile()`，可在线编辑）。显示的值是运行时按完整优先级链解析后的结果：环境变量 > profile 行 config > `SEKAISYNC_CONFIG` > `config.local.json` > `config.json` > 自动发现。
 
 刻意的边界：
 
-- 面板只写 `store` 与 `root` 两个字段，且只写插件自己的 `config.local.json`，并且必须在路径分类通过之后。`python` **刻意不允许**从面板修改：把一个可执行文件路径暴露在 HTTP 上，等于把「任意程序执行」搬到网页上。面板写入最坏的结果只是把知识库指向另一个目录。
-- 面板路由是 DSH Web 服务器上 `/api/sekaisync` 下的精确 `POST` 路由，经 `ctx.connection.fetch.register` 注册。因为它们位于 `/api` 前缀之下，框架的 Connection 层已经代为把关：Host/Origin 信任判定加上浏览器 cookie 鉴权。若改为自行检查 `remoteAddress`，既会破坏 `trustedHosts` 的支持，也挡不住 DNS rebinding，因此面板刻意依赖框架的栅栏。没有 Web 客户端连接层的 profile 不会注册它们。
+- 面板只写 `store` 与 `root` 两个字段，且必须通过路径分类之后才经官方 `settings` 服务落盘。`python` **刻意不允许**从面板修改：把一个可执行文件路径暴露在 HTTP 上，等于把「任意程序执行」搬到网页上。面板写入最坏的结果只是把知识库指向另一个目录。
+- 面板后端是一个 **Typert Remote** 服务（命名空间 `sekaisync`），注册在本 profile 行自己的 fiber 里，与官方 `dsh-experimental-voice-input-bundle` / `dsh-api-settings-controller` 的做法一致。浏览器半侧挂载一份手写的 `TYPERT_REMOTE` 贡献，通过 `ctx.remote.sekaisync.*` 调用——不再手写 HTTP 路由。写入走 `settings.update`，由框架用与所有 `/api` 表面相同的 Host/Origin + cookie 栅栏把关，并串行化写入、写入前先校验取值。没有 `settings` 服务的组合（纯 CLI）不会挂载面板，而 10 个工具照常可用。
 - 面板是增强项而非必需项。没有它时，上面的文件配置方式完全照旧可用。
 
 <a id="readme-section-tools"></a>
@@ -146,8 +145,8 @@ dsh plugin --profile web add <本目录>
 - 服务器 60 秒冷却：连续崩溃 2 次后暂停自动重启，检查 store 完整性（`python -m sekaisync --no-event-check integrity`）。
 - 工具结果里的 `ERROR: HTTP …`：服务器已起但请求失败，多为参数问题；`sekai_status` 可看服务模式与 store 路径。
 - `ERROR: 缺少必填参数 …`：插件侧守卫拦截，按提示补齐参数即可。
-- 行上找不到「**配置**」入口：面板需要带插件管理界面的 Web profile。请确认 profile 里有 `ui-plugin-manager`、该组合包已开启，且插件是在本版本之后安装的——从 GitHub 安装的包不含被 gitignore 的 `config.local.json`，因此还要确认部署路径可被解析（见第一条）。
-- 「**保存并生效**」提示成功但路径没变：更高层（环境变量或 profile 行 config）已钉死 `store`。页面上会点名是哪一层，请改那一层。
-- `/api/sekaisync/*` 返回 `forbidden` 或 `unauthorized`：请求没有通过框架的 Host/Origin 与 cookie 栅栏。面板路由刻意只对已鉴权的本机客户端开放。
+- 行上找不到「**配置**」入口：面板需要带插件管理界面与 `settings` 服务的 Web profile（纯 CLI 组合两者皆无）。请确认 profile 里有 `ui-plugin-manager`、该组合包已开启，且插件是在本版本之后安装的——从 GitHub 安装的包不含被 gitignore 的 `config.local.json`，因此还要确认部署路径可被解析（见第一条）。
+- 「**保存并生效**」提示成功但路径没变：更高层（环境变量或 profile 行 config）已钉死 `store`。页面会显示当前生效值，请改那一层。
+- 面板返回 `forbidden` 或 `unauthorized`：请求没有通过框架的 Host/Origin 与 cookie 栅栏。面板基于 `settings` 的写入刻意只对已鉴权的本机客户端开放。
 - `sekai_probe` 显示 `词表来源=static`：动态词表（`terms export`）尚未预热完成或构建失败，
   探针已退化为内置静态词库；稍后重试或检查 store 完整性。

@@ -9,7 +9,7 @@
 
 English | [中文](README.zh-CN.md)
 
-[![Release](https://img.shields.io/badge/Release-0.3.4--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.5--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
@@ -39,17 +39,16 @@ dsh plugin --profile web add <本目录>
 
 | Runtime | Verdict |
 | --- | --- |
-| `0.1.5-rc.2` | allow |
-| `0.1.7-rc.2` | allow |
-| `0.1.8` | allow |
-| `0.2.0-rc.1` | allow (verified: tools, panel routes, and a real lookup all run on this runtime) |
+| `0.1.x` | **DENY** (the official panel mechanism — `.volatile()` Config + `settings` + Typert Remote — does not exist before `0.2.0-rc.1`) |
+| `0.2.0-rc.1` | allow (verified: tools, panel, and a real lookup all run on this runtime) |
 | `0.2.x` | allow |
 | `0.3.0` / `0.3.0-rc.1` / `1.0.0` | **DENY** (unverified versions fail closed; use `dsh plugin allow-version` for an exception) |
 
 The gate is `evaluatePluginCompatibility`, which reads `peerDependencies` only. This plugin declares
-`@deepseek-ai/dsh-tools: ">=0.1.5-rc.2 <0.3.0-0"`. Note the `-0` suffix: a bare `<0.3.0` would still admit
-`0.3.0-rc.1`, because semver orders prereleases below their release. `scripts/verify-version-gate.mjs`
-re-runs the runtime's own evaluator against this table on every release.
+`@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-settings`, and `@deepseek-ai/dsh-typert-protocol` each as
+`">=0.2.0-rc.1 <0.3.0-0"`. Note the `-0` suffix: a bare `<0.3.0` would still admit `0.3.0-rc.1`, because
+semver orders prereleases below their release. `scripts/verify-version-gate.mjs` re-runs the runtime's own
+evaluator against this table on every release.
 
 If a runtime upgrade ever disables this plugin, the symptom is that the tools disappear entirely and the
 panel stops loading — the composition rejects the bundle before any of its code runs.
@@ -92,18 +91,21 @@ Open **Plugins → Installed → dsh-sekaisync-connect → the row's Configure c
 | Control | What it does |
 | --- | --- |
 | Path field + **Check** | Classifies the path and reports whether it is a store, a repository root, or a `kb/` directory — plus database size, `kb/` entry count, and the `freshness` payload when present |
-| **Save and apply** | Writes `config.local.json` and hot-reloads the backend, so the new path takes effect without restarting DSH |
+| **Save and apply** | Validates the path, then persists it through the official `settings` service into the profile's `cordis.patch.yml` and hot-reloads the backend — no restart required |
 | **Auto-detect** | Scans bounded, local-only locations (environment variables, `cwd`, common home directories, and siblings of the plugin directory) for candidate deployments |
 | **Choose folder…** | Opens the OS folder chooser when the host mounted the native directory picker |
 | **Browse** | In-app directory browsing, used when no native picker is available (remote or headless sessions) |
 | **Test connection** | Performs a real `/health` request against the selected deployment and reports latency and readiness |
 
-The source row above the form names the configuration layer currently in effect. It matters: precedence is environment variables > profile row config > `SEKAISYNC_CONFIG` > `config.local.json` > `config.json`. When a higher layer already fixes `store`, the form says **overridden by a higher layer** — saving still writes the file, but the new value has no effect until that layer changes.
+The panel reads and writes the plugin's own **Cordis Config** (`store` / `root`, both declared
+`.volatile()` so they are live-editable). The value shown is what the runtime resolves after the full
+precedence chain: environment variables > profile row config > `SEKAISYNC_CONFIG` > `config.local.json`
+> `config.json` > automatic discovery.
 
 Constraints, by design:
 
-- The panel writes only `store` and `root`, in the plugin's own `config.local.json`, and only after the path passes classification. `python` is deliberately **not** editable from the panel: exposing an executable path over HTTP would put arbitrary program execution on a web page. The worst a panel write can do is point the knowledge base at another directory.
-- Panel routes are exact `POST` routes under `/api/sekaisync` on the DSH Web server, registered through `ctx.connection.fetch.register`. Because they live under the `/api` prefix, the framework's Connection layer already fences them: a Host/Origin trust check plus browser cookie authentication. Hand-rolling a `remoteAddress` check instead would both break `trustedHosts` support and miss DNS rebinding, so the panel deliberately relies on the framework's fence. A profile without a Web client connection layer never registers them.
+- The panel writes only `store` and `root`, through the official `settings` service, and only after the path passes classification. `python` is deliberately **not** editable from the panel: exposing an executable path over HTTP would put arbitrary program execution on a web page. The worst a panel write can do is point the knowledge base at another directory.
+- The panel backend is a **Typert Remote** service (namespace `sekaisync`) registered in the profile row's own fiber, mirroring the official `dsh-experimental-voice-input-bundle`/`dsh-api-settings-controller` pattern. The browser half mounts a hand-written `TYPERT_REMOTE` contribution and calls `ctx.remote.sekaisync.*` — it no longer hand-rolls HTTP routes. Writes go through `settings.update`, which the framework fences with the same Host/Origin and cookie authentication as every `/api` surface, and which serializes writes and validates values before persistence. A profile without a `settings` service (a pure CLI composition) simply never mounts the panel, while the 10 tools keep working.
 - The panel is an addition, not a requirement. Without it, the file-based configuration above works exactly as before.
 
 <a id="readme-section-tools"></a>
@@ -146,8 +148,8 @@ Ten model-facing tools, all read-only against the local knowledge base:
 - Server 60-second cooldown: automatic restarts pause after 2 consecutive crashes. Check the integrity of the store with `python -m sekaisync --no-event-check integrity`.
 - `ERROR: HTTP …` in a tool result: the server has started but the request failed, usually because of a parameter issue. `sekai_status` reports the service mode and store path.
 - `ERROR: 缺少必填参数 …`: the plugin's guard caught a missing argument. Supply the requested argument and retry.
-- The row's **Configure** page is missing: the panel needs a Web profile with the plugin-manager UI. Confirm `ui-plugin-manager` is in the profile, that the bundle is switched on, and that the plugin was installed after this release — a package installed from GitHub does not carry the gitignored `config.local.json`, so also confirm the deployment path is resolvable (see the first item above).
-- **Save and apply** reports success but the old path stays in effect: a higher layer (environment variable or profile row config) fixes `store`. The page names that layer; change it there instead.
-- `forbidden` or `unauthorized` from `/api/sekaisync/*`: the request did not pass the framework's Host/Origin and cookie fence. Panel routes are intentionally restricted to the authenticated local client.
+- The row's **Configure** page is missing: the panel needs a Web profile with the plugin-manager UI and the `settings` service (a pure CLI composition has neither). Confirm `ui-plugin-manager` is in the profile, that the bundle is switched on, and that the plugin was installed after this release — a package installed from GitHub does not carry the gitignored `config.local.json`, so also confirm the deployment path is resolvable (see the first item above).
+- **Save and apply** reports success but the old path stays in effect: a higher layer (environment variable or profile row config) fixes `store`. The page names the effective value; change the higher layer instead.
+- `forbidden` or `unauthorized` from the panel: the request did not pass the framework's Host/Origin and cookie fence. The panel's `settings`-backed writes are intentionally restricted to the authenticated local client.
 - If `sekai_probe` reports `词表来源=static`, the dynamic lexicon (`terms export`) has not finished warming or its build failed.
   The probe has fallen back to the built-in static lexicon; retry later or check store integrity.

@@ -1,40 +1,33 @@
 // Host 半侧集成校验：用贴近真实的 Cordis 上下文跑一遍 apply()，
-// 确认 10 个工具与 7 条面板路由都被注册，且清理函数成对存在。
+// 确认 10 个工具与 1 个 DeployService（Typert Remote 后端）都被注册，且清理函数成对存在。
 // 不联网、不起子进程——只校验装配与生命周期。
 import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
 // 用临时配置目录，绝不动真实 config.local.json
 const configDir = mkdtempSync(join(tmpdir(), 'sks-host-'))
 process.env.SEKAISYNC_CONFIG_DIR = configDir
 writeFileSync(join(configDir, 'config.json'), JSON.stringify({ store: null, root: null, python: 'python', externalPort: 8787 }))
 
-const { apply, BUDGETS } = await import('../lib/index.js')
+const { apply, BUDGETS, Config } = await import('../lib/index.js')
 
 const tools = []
 const effects = []
-const routes = []
 const childInjections = []
+const childPlugins = []
 
-// 面板走 connection.fetch.register：注册的是精确 Fetch 路由，返回 Response。
-const connectionCtx = {
+// 面板走后端：一个 Typert Remote 服务（DeployService），由 ctx.inject(['settings'], cb) 里的
+// settingsCtx.plugin(DeployService) 装载。这里模拟 settings 服务，并记录子插件。
+const settingsCtx = {
   effect: (factory, label) => { const dispose = factory(); effects.push({ label, dispose }); return dispose },
-  connection: {
-    fetch: {
-      register: (route) => {
-        if (routes.some((r) => r.path === route.path)) throw new Error(`duplicate Fetch route ${route.path}`)
-        routes.push(route)
-        return () => { routes.splice(routes.indexOf(route), 1) }
-      },
-    },
-  },
-  get: () => undefined,
+  plugin: (plugin) => { childPlugins.push(plugin); return () => {} },
+  get: (name) => (name === 'settings' ? { update: async () => {} } : undefined),
 }
 
 const ctx = {
@@ -43,13 +36,13 @@ const ctx = {
   // 真实的 Cordis ctx.inject(deps, callback)：依赖可用时才调用 callback
   inject: (deps, callback) => {
     childInjections.push(deps)
-    if (deps.includes('connection')) return callback(connectionCtx)
+    if (deps.includes('settings')) return callback(settingsCtx)
     return () => {}
   },
   get: () => undefined,
 }
 
-apply(ctx, null)
+apply(ctx, {})
 
 // ── 工具 ──
 assert.equal(tools.length, 10, `expected 10 tools, got ${tools.length}`)
@@ -78,24 +71,27 @@ for (const [name, budget] of Object.entries(BUDGETS)) {
   assert.ok(budget.outer > budget.inner, `${name}: outer budget must exceed inner`)
 }
 
-// ── 面板路由 ──
-assert.ok(childInjections.some((deps) => deps.includes('connection')),
-  'apply must wait for connection before registering panel routes')
-assert.equal(routes.length, 7, `expected 7 panel routes, got ${routes.length}`)
-assert.deepEqual(routes.map((r) => r.path).sort(), [
-  '/api/sekaisync/browse', '/api/sekaisync/detect', '/api/sekaisync/inspect',
-  '/api/sekaisync/pick', '/api/sekaisync/save', '/api/sekaisync/state', '/api/sekaisync/test',
-], 'panel routes are registered under the framework /api prefix')
-// 框架的 assertFetchRoute 硬性要求：路径在 /api 内、methods 非空且不重复。
-assert.ok(routes.every((r) => r.path.startsWith('/api/')), 'every route lives under /api (required by the framework)')
-assert.ok(routes.every((r) => Array.isArray(r.methods) && r.methods.length > 0), 'methods declared')
-assert.ok(routes.every((r) => new Set(r.methods).size === r.methods.length), 'no repeated methods')
-assert.ok(routes.every((r) => r.requestBody === 'buffered' || r.requestBody === 'streaming'), 'requestBody is a valid mode')
-assert.ok(routes.every((r) => typeof r.fetch === 'function'), 'every route has a fetch handler')
+// ── 面板后端（DeployService + Typert Remote）──
+assert.ok(childInjections.some((deps) => deps.includes('settings')),
+  'apply must wait for settings before mounting the panel service')
+assert.equal(childPlugins.length, 1, 'exactly one panel service is mounted')
+const DeployService = childPlugins[0]
+assert.equal(typeof DeployService, 'function', 'the panel backend is a class/function')
+
+// 方法必须带 Remote 标记（registerRemoteMethods 手动打的标，等价于 @Remote）。
+const instance = Object.create(DeployService.prototype)
+const methods = remoteMethods(instance).map((m) => m.method)
+assert.deepEqual(methods.sort(), ['browse', 'detect', 'inspect', 'pick', 'save', 'state', 'test'],
+  'DeployService exports the seven panel actions as Remote methods')
+
+// Config 必须声明 store/root 为 volatile（settings 表单投影只认 .volatile()），python 不 volatile
+assert.equal(Config.dict.store.meta.volatile, true, 'store must be volatile')
+assert.equal(Config.dict.root.meta.volatile, true, 'root must be volatile')
+assert.notEqual(Config.dict.python.meta.volatile, true, 'python must NOT be volatile (RCE guard)')
 
 // ── 生命周期：effects 应能在不抛错的前提下全部释放 ──
 assert.ok(effects.length >= 11, `expected effect cleanup for 10 tools + lifecycle, got ${effects.length}`)
-const beforeDispose = { tools: tools.length, routes: routes.length }
+const beforeDispose = { tools: tools.length }
 for (const { label, dispose } of effects) {
   if (typeof dispose === 'function') {
     try { dispose() } catch (e) {
@@ -104,9 +100,8 @@ for (const { label, dispose } of effects) {
     }
   }
 }
-// 释放后注册表应被清空（这正是上面报告 0 的原因）
+// 释放后工具注册表应被清空
 assert.equal(tools.length, 0, 'disposing the tool effects unregisters every tool')
-assert.equal(routes.length, 0, 'disposing the panel effect removes every route')
 
 // 真实配置未被触碰
 const realLocal = join(root, 'config.local.json')
@@ -119,7 +114,7 @@ delete process.env.SEKAISYNC_CONFIG_DIR
 
 console.log('host-half integration passed')
 console.log('  tools   :', beforeDispose.tools, '(' + toolNames.join(', ') + ')')
-console.log('  routes  :', beforeDispose.routes, '(all under /api/sekaisync)')
+console.log('  panel   : DeployService with Remote methods', methods.join(', '))
 console.log('  effects :', effects.length)
 console.log('  inject  :', JSON.stringify(childInjections))
-console.log('  disposed:', `tools=${tools.length} routes=${routes.length} (all released cleanly)`)
+console.log('  disposed:', `tools=${tools.length} (all released cleanly)`)

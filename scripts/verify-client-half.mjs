@@ -1,6 +1,6 @@
 // 验证 lib/client.js 这个浏览器半侧能否在「模块表 + Cordis 上下文」的模拟环境里正确装载。
 // 这不是端到端 GUI 测试，但能抓住最致命的一类问题：factory 抛错、apply 不存在、
-// 槽位注册的键不对、locale 注册形状不对——这些都会让面板整块不出现。
+// 槽位注册的键不对、locale 注册形状不对、Remote 贡献的 codec 契约不对——这些都会让面板整块不出现。
 import { readFileSync } from 'node:fs'
 import { strict as assert } from 'node:assert'
 import { resolve, dirname } from 'node:path'
@@ -59,13 +59,15 @@ assert.equal(typeof registration.factory, 'function', 'factory must be a functio
 // 物化 factory（等价于模块表首次 require）
 const plugin = registration.factory(requireStub)
 assert.equal(typeof plugin.apply, 'function', 'client half must export apply')
-assert.deepEqual(plugin.inject, ['slots', 'locale'], 'client half injects slots + locale')
+assert.deepEqual(plugin.inject, ['slots', 'locale', 'remote'], 'client half injects slots + locale + remote')
 
-// ── 3. 在假上下文里跑 apply：应注册 locale、样式与插件面板槽位 ──
+// ── 3. 在假上下文里跑 apply：应注册 locale、样式、Remote 贡献与插件面板槽位 ──
 const effects = []
 const localeCalls = []
 const slotRegistrations = []
 const slotInjections = []
+const remoteMounts = []
+const remoteMethods = {}
 
 const ctx = {
   // Cordis 语义：ctx.effect(callback) **立即执行** callback，并把返回值登记为清理函数。
@@ -80,14 +82,24 @@ const ctx = {
     bind: (ns) => (key, params) => {
       const dict = localeCalls.find((c) => c.ns === ns)?.dicts?.zh
       const value = dict ? dict[key] : undefined
-      if (typeof value === 'function') return value(params || {})
-      // 与 client-locale 一致：缺失的键暴露键名本身，便于发现遗漏
-      return value === undefined ? key : value
+      // 与 client-locale 一致：字符串模板插值 {name}；缺失的键暴露键名本身
+      return value === undefined ? key : String(value).replace(/\{(\w+)\}/g, (m, name) => String(params?.[name] ?? m))
     },
   },
   slots: {
     inject: (name, callback) => { slotInjections.push(name); callback(); return () => {} },
     register: (options, Component) => { slotRegistrations.push({ options, Component }); return () => {} },
+  },
+  remote: {
+    $mount: async (contribution) => {
+      remoteMounts.push(contribution)
+      // 复刻 0.2.0-rc.1 客户端命名空间服务的语义：把每个 descriptor 装成方法
+      for (const d of contribution.descriptors) {
+        remoteMethods[d.method] = (...args) => Promise.resolve({ ok: true, value: { method: d.method, args } })
+      }
+      return async () => {}
+    },
+    sekaisync: remoteMethods,
   },
   get: () => undefined,
 }
@@ -99,9 +111,8 @@ globalThis.document = {
   createElement: (tag) => ({ tag, dataset: {}, textContent: '', remove() {} }),
   head,
 }
-globalThis.fetch = async () => { throw new Error('fetch must not run during apply') }
 
-plugin.apply(ctx)
+await plugin.apply(ctx)
 
 assert.equal(localeCalls.length, 1, 'registers exactly one locale namespace')
 assert.equal(localeCalls[0].ns, 'sekaisync')
@@ -115,19 +126,39 @@ assert.equal(registrationOptions.key, 'dsh-sekaisync-connect#dsh-sekaisync-conne
   'key must be <package name>#<row id> as the bundle patch declares it')
 assert.equal(typeof slotRegistrations[0].Component, 'function', 'component is a function')
 
-// ── 4. 渲染两种 view，确认不抛错且摘要文案随状态变化 ──
+// ── 4. Remote 贡献必须满足 0.2.0-rc.1 客户端契约 ──
+assert.equal(remoteMounts.length, 1, 'mounts exactly one TYPERT_REMOTE contribution')
+const contribution = remoteMounts[0]
+assert.equal(contribution.package, 'dsh-sekaisync-connect')
+const descriptors = contribution.descriptors
+assert.deepEqual(descriptors.map((d) => d.method).sort(), ['browse', 'detect', 'inspect', 'pick', 'save', 'state', 'test'],
+  'the Remote contribution exposes the seven panel actions')
+for (const d of descriptors) {
+  assert.equal(d.service, 'deploy')
+  assert.equal(d.namespace, 'sekaisync')
+  assert.equal(d.invocation.kind, 'direct')
+  assert.equal(d.result.mode, 'src-json', 'results pass through as src-json')
+  for (const p of d.parameters) {
+    // 0.2.0-rc.1 客户端 requireStrictInputs 只查 mode==='strict'；typert 注册表要求
+    // strict codec 带 typeSymbol + create()（从不调用 create，参数原样透传）。
+    assert.equal(p.codec.mode, 'strict', `${d.method}/${p.name} codec must be strict`)
+    assert.ok(p.codec.typeSymbol, `${d.method}/${p.name} codec has a typeSymbol`)
+    assert.equal(typeof p.codec.create, 'function', `${d.method}/${p.name} codec has a create() factory`)
+  }
+}
+
+// ── 5. 渲染两种 view，确认不抛错且摘要文案随状态变化 ──
 const Component = slotRegistrations[0].Component
 const t = ctx.locale.bind('sekaisync')
-const summary = Component({ t, view: 'summary' })
+const summary = Component({ t, view: 'summary', remote: ctx.remote.sekaisync })
 assert.ok(summary, 'summary view renders something')
 assert.match(String(summary.children), /尚未选择/, 'summary says nothing is selected before state loads')
 
-const page = Component({ t, view: 'page' })
+const page = Component({ t, view: 'page', remote: ctx.remote.sekaisync })
 assert.ok(page, 'page view renders something')
 assert.ok(Array.isArray(page.children) && page.children.length > 0, 'page view has content')
 
 // useEffect 在桩里不执行，因此 state 仍为 null：页面必须能在无数据时渲染。
-// 这正是真实首帧的情形（组件挂载后才会 fetch）——不能因为 state 为空就抛错。
 assert.equal(page.children.filter((child) => child === null || child === undefined).length, 0,
   'no null children in the first frame')
 
@@ -136,38 +167,8 @@ const zhKeys = Object.keys(localeCalls[0].dicts.zh).sort()
 const enKeys = Object.keys(localeCalls[0].dicts.en).sort()
 assert.deepEqual(zhKeys, enKeys, 'zh and en dictionaries must expose the same keys')
 
-// ── 5. 契约核对：client 调用的动作名必须正是 host 注册的路由 ──
-// 这是最容易「看起来都对、实际 404」的地方：两边各自写字符串，谁也不会编译报错。
-const panelSource = readFileSync(resolve(root, 'lib/panel.js'), 'utf8')
-const hostActions = new Set(
-  [...panelSource.matchAll(/^\s{2}([a-zA-Z]+):\s*(?:async\s*)?\(/gm)].map((m) => m[1]),
-)
-const clientActions = new Set([...source.matchAll(/api\(\s*'([a-zA-Z]+)'/g)].map((m) => m[1]))
-assert.ok(hostActions.size > 0, 'host action table parsed')
-assert.ok(clientActions.size > 0, 'client call sites parsed')
-for (const action of clientActions) {
-  assert.ok(hostActions.has(action), `client calls api('${action}') but the host declares no such route`)
-}
-// 反向：host 的每个动作都应在 client 里可达
-for (const action of hostActions) {
-  assert.ok(clientActions.has(action), `host route '${action}' is never called by the client half`)
-}
-
-// 面板前缀必须一致，且**必须是文档相对**的（应用可能挂在子路径下）。
-// 框架还硬性要求 host 侧路径落在 /api 内。
-const hostBase = /const BASE = '([^']+)'/.exec(panelSource)?.[1]
-const hostRelative = /const RELATIVE_BASE = ([^\n]+)/.exec(panelSource)?.[1]
-const clientBase = /const API = '([^']+)'/.exec(source)?.[1]
-assert.equal(clientBase, hostBase.slice(1),
-  'client prefix must be the document-relative form of the host route prefix')
-assert.equal(clientBase.startsWith('/'), false, 'the client must not use an absolute path')
-assert.ok(hostBase.startsWith('/api/'), 'framework requires host routes under /api')
-assert.ok(/BASE\.slice\(1\)/.test(hostRelative ?? ''), 'the relative prefix derives from the same literal')
-
 console.log('client-half verification passed')
 console.log('  slot key  :', registrationOptions.key)
 console.log('  locales   :', localeCalls[0].ns, '/', Object.keys(localeCalls[0].dicts).join(','))
 console.log('  dict keys :', zhKeys.length)
-console.log('  host base :', hostBase, '(under /api as the framework requires)')
-console.log('  client    :', clientBase, '(document-relative)')
-console.log('  actions   :', [...hostActions].sort().join(', '))
+console.log('  remote    :', descriptors.map((d) => d.method).sort().join(', '))

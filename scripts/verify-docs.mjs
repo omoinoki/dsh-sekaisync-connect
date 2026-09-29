@@ -11,7 +11,7 @@ const pkg = JSON.parse(read('package.json'))
 const en = read('README.md')
 const zh = read('README.zh-CN.md')
 const clientSource = read('lib/client.js')
-const panelSource = read('lib/panel.js')
+const deployServiceSource = read('lib/deploy-service.js')
 
 // ── 版本号三处必须一致：package.json / 两个 README 的徽章 ──
 // shields.io 的徽章文本把 '-' 写成 '--'（连字符需转义），比较时还原。
@@ -67,34 +67,25 @@ for (const [label, key] of controls) {
   assert.ok(new RegExp(`\\b${key}:`).test(clientSource), `client dictionary must define "${key}" for "${label}"`)
 }
 
-// ── 文档声称的路由前缀与动作必须与代码一致 ──
-const hostBase = /const BASE = '([^']+)'/.exec(panelSource)?.[1]
-assert.equal(hostBase, '/api/sekaisync')
-assert.ok(en.includes(hostBase), `README must name the real route prefix ${hostBase}`)
-assert.ok(zh.includes(hostBase), `README.zh-CN.md must name the real route prefix ${hostBase}`)
-
-// 文档说「只接受 POST」「仅限本机」——代码里必须真有对应约束
-assert.ok(/methods: \['POST'\]/.test(panelSource), 'routes must declare POST only, as documented')
-// 鉴权交给框架的 /api 栅栏（Host/Origin + cookie），而不是自写 remoteAddress 判定。
-// 注意：必须先把注释剥掉再判断——解释「为什么不用 remoteAddress」的注释本身含这个词。
-const panelCode = panelSource
-  .replace(/\/\*[\s\S]*?\*\//g, '')   // 块注释
-  .replace(/^[ \t]*\/\/.*$/gm, '')    // 行注释
-assert.ok(/ctx\.connection\.fetch\.register/.test(panelCode),
-  'the panel must use the framework-fenced connection.fetch.register')
-assert.equal(/remoteAddress/.test(panelCode), false,
-  'must not hand-roll a remoteAddress check: it would break trustedHosts and miss DNS rebinding')
-// 源码里必须解释清楚为何选框架栅栏（这是一处非显然的安全取舍）
-assert.ok(/DNS rebinding/i.test(panelSource) && /Host\/Origin/.test(panelSource),
-  'the reason for using the fenced /api route must be documented in the source')
+// ── 面板架构必须与代码一致：Typert Remote + settings 持久化 ──
+// 文档说「面板后端是 Typert Remote 服务、写入走 settings.update」——代码里必须真这么做。
+assert.ok(/ctx\.remote\.sekaisync/.test(clientSource), 'client must call the sekaisync Remote namespace')
+assert.ok(/TYPERT_REMOTE/.test(clientSource), 'client must hand-ship a TYPERT_REMOTE contribution')
+assert.ok(/ctx\.remote\.\$mount/.test(clientSource), 'client must mount the Remote contribution')
+assert.ok(/settings\.update/.test(deployServiceSource), 'panel writes must go through settings.update')
+assert.ok(/ctx\.get\('settings'\)/.test(deployServiceSource), 'the service must read the settings service')
+// 面板不再手写 HTTP 路由：既没有 panel.js，也没有 connection.fetch.register
+assert.ok(!/connection\.fetch/.test(deployServiceSource), 'must not hand-roll HTTP routes anymore')
+assert.ok(!/remoteAddress/.test(deployServiceSource), 'must not hand-roll a remoteAddress check')
 
 // 文档说 python 刻意不可编辑——写接口必须真的拒绝它
-const deploySource = read('lib/deploy.js')
-assert.ok(/不允许写入字段/.test(deploySource), 'deploy must reject non store/root fields as documented')
-const writeFn = /export function writeLocalConfig\([\s\S]*?\n}/.exec(deploySource)?.[0] ?? ''
-assert.ok(/\['store', 'root'\]\.includes\(key\)/.test(writeFn),
-  'writeLocalConfig must gate on exactly the store/root allowlist')
-assert.ok(!/python/.test(writeFn), 'writeLocalConfig must not mention python at all')
+// （config 里 python 不 .volatile()，save 也只写 store/root 两个字段）
+const configSource = read('lib/config.js')
+assert.ok(!/python[^\n]*\.volatile\(\)/.test(configSource), 'python must NOT be volatile')
+assert.ok(/store[^\n]*\.volatile\(\)/.test(configSource), 'store must be volatile')
+assert.ok(/root[^\n]*\.volatile\(\)/.test(configSource), 'root must be volatile')
+assert.ok(/VOLATILE_FIELDS\s*=\s*\[[^\]]*'store'[^\]]*'root'/.test(configSource),
+  'the editable allowlist must be store/root')
 
 // ── 文档里的工具名必须与实际注册的 10 个一致 ──
 const indexSource = read('lib/index.js')
@@ -111,4 +102,4 @@ console.log('docs consistency passed')
 console.log('  version   :', pkg.version)
 console.log('  panel doc : both READMEs, anchor + nav link present')
 console.log('  controls  :', controls.length, 'verified against the dictionary')
-console.log('  routes    :', hostBase, '(POST-only, framework-fenced)')
+console.log('  panel arch:', 'Typert Remote (`sekaisync`) + settings.update persistence')

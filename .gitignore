@@ -6,6 +6,11 @@ dist/
 .DS_Store
 Thumbs.db
 
+# 本仓库不随附 pnpm 工作区/锁文件：插件由 DSH profile 自己的 pnpm 装配，
+# 这两个文件是「本机跑 verify 时 pnpm 安装 0.2.0-rc.1 预发布包」的本地产物。
+/pnpm-lock.yaml
+/pnpm-workspace.yaml
+
 # 本地探测/抓取产物（非插件资产）
 moegirl-wx-sides.html
 

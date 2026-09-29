@@ -11,6 +11,7 @@ const TOOLS = []
 idx.apply({
   tools: { register: (d) => { TOOLS.push(d); return () => {} } },
   effect: (fn) => { fn(); return () => {} },
+  inject: () => () => {},
 })
 
 // 内层预算来自 index.js 导出的 BUDGETS（不再用正则解析源码），
