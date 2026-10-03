@@ -115,7 +115,7 @@ try {
   console.log('dispatch sekai_probe -> ' + text.replace(/\n/g, ' | ').slice(0, 160))
 } catch (e) { console.log('dispatch FAILED: ' + String(e.message).slice(0, 160)) }
 
-// 本插件的契约是「execute 永远返回字符串」，缺参因此体现为 content 文本而非 isError。
+// 成功为字符串；非法参数必须抛出，由当前 ToolRuntime 记录为 isError。
 let argGuardOk = false
 try {
   const res = await tools.execute({
@@ -123,7 +123,7 @@ try {
     signal: new AbortController().signal,
   })
   const text = String(res?.value ?? res?.content?.[0]?.text ?? '')
-  argGuardOk = /缺少必填参数 query/.test(text) && !/HTTP 400/.test(text)
+  argGuardOk = res?.isError === true && /缺少必填参数 query/.test(text) && !/HTTP 400/.test(text)
   console.log('missing-required arg -> ' + text.slice(0, 140))
 } catch (e) { console.log('arg guard FAILED: ' + String(e.message).slice(0, 160)) }
 

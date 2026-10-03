@@ -173,15 +173,15 @@ test('HTTP contract, generation invalidation, deadlines and tool validation', as
   })
   assert.equal(tools.length, 10)
   const lookup = tools.find((tool) => tool.name === 'sekai_lookup')
-  assert.match(await lookup.execute({ query: {} }), /类型/)
-  assert.match(await lookup.execute({ query: 'x', limit: Infinity }), /类型/)
-  assert.match(await lookup.execute({}, {}), /缺少必填/)
+  await assert.rejects(lookup.execute({ query: {} }), /类型/)
+  await assert.rejects(lookup.execute({ query: 'x', limit: Infinity }), /类型/)
+  await assert.rejects(lookup.execute({}, {}), /缺少必填/)
   const lookupBudget = BUDGETS.lookup.inner
   BUDGETS.lookup.inner = 35
   try { assert.match(await lookup.execute({ query: 'enrichment' }), /event:1/) }
   finally { BUDGETS.lookup.inner = lookupBudget }
   const alias = tools.find((tool) => tool.name === 'sekai_alias')
-  assert.match(await alias.execute({ query: 'wl3' }, { signal: cancelling.signal }), /已取消/)
+  await assert.rejects(alias.execute({ query: 'wl3' }, { signal: cancelling.signal }), /已取消/)
   const probe = tools.find((tool) => tool.name === 'sekai_probe')
   const rendered = await probe.execute({ query: '星乃一歌'.repeat(100000) })
   assert.ok(rendered.length < 3000)

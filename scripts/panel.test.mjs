@@ -41,6 +41,13 @@ function makeDeployment(base) {
   return { root, store }
 }
 
+function makeDetachedStore(base) {
+  const store = join(base, 'data', 'isolated-store')
+  mkdirSync(join(store, 'kb'), { recursive: true })
+  writeFileSync(join(store, 'kb', 'sekaisync.db'), Buffer.alloc(4096, 1))
+  return store
+}
+
 /** 在最小上下文里构造一个 DeployService 实例，并记录 settings.update 调用。 */
 function makeService({ pluginRoot, entryId = 'dsh-sekaisync-connect', picker } = {}) {
   const previous = process.env.SEKAISYNC_CONFIG_DIR
@@ -141,6 +148,119 @@ test('save refuses an invalid path rather than pointing the KB at a broken direc
   try {
     await assert.rejects(() => service.save(join(root, 'does-not-exist')), /store 校验未通过/)
     assert.equal(updates.length, 0, 'a rejected save must not reach settings.update')
+  } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
+})
+
+test('inspect and save preserve the configured source root for a detached store', async () => {
+  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
+  const original = makeDeployment(join(pluginRoot, 'source'))
+  const detached = makeDetachedStore(pluginRoot)
+  writeFileSync(join(pluginRoot, 'config.local.json'), JSON.stringify(original))
+  const { service, updates, restore } = makeService({ pluginRoot })
+  try {
+    const preview = service.inspect(detached)
+    assert.equal(preview.ok, true)
+    assert.equal(preview.store, detached)
+    assert.equal(preview.root, original.root)
+    assert.equal(preview.rootOrigin, 'configured')
+    assert.equal(preview.rootVerified, true)
+    assert.equal(updates.length, 0, 'inspection must not persist its preview')
+    assert.equal(service.state().store, original.store)
+    assert.equal(service.state().root, original.root)
+
+    const result = await service.save(detached)
+    assert.equal(result.store, preview.store)
+    assert.equal(result.root, preview.root)
+    assert.deepEqual(updates[0].patch, { store: detached, root: original.root })
+    assert.equal(service.state().root, original.root)
+    assert.equal(service.state().current.root, original.root)
+  } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
+})
+
+test('a detached kb directory uses the same preserved root in preview and persistence', async () => {
+  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
+  const original = makeDeployment(join(pluginRoot, 'source'))
+  const detached = makeDetachedStore(pluginRoot)
+  writeFileSync(join(pluginRoot, 'config.local.json'), JSON.stringify(original))
+  const { service, updates, restore } = makeService({ pluginRoot })
+  try {
+    const kb = join(detached, 'kb')
+    const preview = service.inspect(kb)
+    assert.equal(preview.kind, 'kb-dir')
+    assert.equal(preview.root, original.root)
+    const result = await service.save(kb)
+    assert.equal(result.store, detached)
+    assert.equal(result.root, preview.root)
+    assert.deepEqual(updates[0].patch, { store: detached, root: original.root })
+  } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
+})
+
+test('an explicit source repository can replace the old source root consistently', async () => {
+  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
+  const original = makeDeployment(join(pluginRoot, 'old'))
+  const replacement = makeDeployment(join(pluginRoot, 'new'))
+  writeFileSync(join(pluginRoot, 'config.local.json'), JSON.stringify(original))
+  const { service, updates, restore } = makeService({ pluginRoot })
+  try {
+    const preview = service.inspect(replacement.root)
+    assert.equal(preview.root, replacement.root)
+    assert.equal(preview.rootOrigin, 'source')
+    assert.equal(preview.rootVerified, true)
+    const result = await service.save(replacement.root)
+    assert.equal(result.root, preview.root)
+    assert.deepEqual(updates[0].patch, replacement)
+    assert.equal(service.state().root, replacement.root)
+  } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
+})
+
+test('without a configured root, installed-package deployment keeps an explicitly unverified fallback', async () => {
+  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
+  const detached = makeDetachedStore(pluginRoot)
+  writeFileSync(join(pluginRoot, 'config.json'), JSON.stringify({ root: null, store: null }))
+  const { service, updates, restore } = makeService({ pluginRoot })
+  try {
+    const preview = service.inspect(detached)
+    assert.equal(preview.ok, true)
+    assert.equal(preview.root, join(pluginRoot, 'data'))
+    assert.equal(preview.rootOrigin, 'inferred')
+    assert.equal(preview.rootVerified, false)
+    assert.match(preview.message, /推断/)
+    const result = await service.save(detached)
+    assert.equal(result.root, preview.root)
+    assert.equal(result.verified.rootVerified, false)
+    assert.deepEqual(updates[0].patch, { store: detached, root: preview.root })
+  } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
+})
+
+test('an unrelated pyproject in the data parent is not proof for replacing the source root', async () => {
+  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
+  const original = makeDeployment(join(pluginRoot, 'source'))
+  const detached = makeDetachedStore(pluginRoot)
+  writeFileSync(join(pluginRoot, 'data', 'pyproject.toml'), '[project]\nname = "unrelated"\n')
+  writeFileSync(join(pluginRoot, 'config.local.json'), JSON.stringify(original))
+  const { service, updates, restore } = makeService({ pluginRoot })
+  try {
+    assert.equal(service.inspect(detached).root, original.root)
+    await service.save(detached)
+    assert.equal(updates[0].patch.root, original.root)
+  } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
+})
+
+test('an explicitly configured installed-package working directory is preserved without claiming source evidence', async () => {
+  const pluginRoot = mkdtempSync(join(tmpdir(), 'sks-panel-'))
+  const detached = makeDetachedStore(pluginRoot)
+  const cwd = join(pluginRoot, 'installed-cwd')
+  mkdirSync(cwd)
+  writeFileSync(join(pluginRoot, 'config.local.json'), JSON.stringify({ root: cwd }))
+  const { service, updates, restore } = makeService({ pluginRoot })
+  try {
+    const preview = service.inspect(detached)
+    assert.equal(preview.ok, true)
+    assert.equal(preview.root, cwd)
+    assert.equal(preview.rootOrigin, 'configured')
+    assert.equal(preview.rootVerified, false)
+    await service.save(detached)
+    assert.equal(updates[0].patch.root, cwd)
   } finally { restore(); rmSync(pluginRoot, { recursive: true, force: true }) }
 })
 

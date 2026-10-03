@@ -9,7 +9,7 @@
 
 English | [中文](README.zh-CN.md)
 
-[![Release](https://img.shields.io/badge/Release-0.3.9--alpha-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-0.3.9--alpha.1-006F78?style=flat&labelColor=17263B)](package.json) [![Runtime](https://img.shields.io/badge/Runtime-Node.js%2020%2B-4F6175?style=flat&labelColor=17263B)](package.json) [![Platform](https://img.shields.io/badge/Platform-Cross--platform-4F6175?style=flat&labelColor=17263B)](package.json) [![License](https://img.shields.io/badge/License-MIT-AC246D?style=flat&labelColor=17263B)](LICENSE)
 
 <!-- readme-navigation:start -->
 <p>
@@ -27,6 +27,10 @@ English | [中文](README.zh-CN.md)
 
 A **DeepSeek Harness direct-connect module** for the SekaiSync knowledge base: zero dependencies, zero build steps, and minimal token usage — plus a Plugins-panel page for choosing the deployment path.
 
+Release **0.3.9-alpha.1** adds scoped fact packs and regional evidence handling for
+**SekaiSync 0.4.2-alpha**, with explicit errors and safer deployment-path changes.
+See [release notes](CHANGELOG.md) for upgrade requirements and verification scope.
+
 <a id="readme-section-01"></a>
 
 ## Installation
@@ -35,8 +39,8 @@ Requires **Python ≥ 3.10** with a working `python -m sekaisync` (no third-part
 synced store (a `sekaisync init` / `sync` product).
 
 ```powershell
-# Install from Git:
-dsh plugin --profile web add github:omoinoki/dsh-sekaisync-connect
+# Install this release from Git:
+dsh plugin --profile web add github:omoinoki/dsh-sekaisync-connect#v0.3.9-alpha.1
 
 # …or from a local checkout:
 dsh plugin --profile web add ./dsh-sekaisync-connect
@@ -48,6 +52,7 @@ Project home: <https://github.com/omoinoki/dsh-sekaisync-connect>
 | --- | --- |
 | `0.1.x` | **DENY** — the panel API this plugin needs does not exist before `0.2.0-rc.1` |
 | `0.2.0-rc.1` | allow (verified: tools, panel, and a real lookup all run on this runtime) |
+| `0.2.0-rc.2` | allow (verified: real Web profile, deployment panel, tool execution, and scoped facts) |
 | `0.2.x` | allow |
 | `0.3.0` / `0.3.0-rc.1` / `1.0.0` | **DENY** — unverified versions fail closed |
 
@@ -107,6 +112,12 @@ The **Effective store** / **Effective root** readout tracks the path field as yo
 and shows a **Not saved yet** marker whenever the typed path differs from the saved one — so a change
 is visible before you commit to it.
 
+A store can live outside the source repository. Without neighboring SekaiSync source files,
+the panel preserves the configured `root` instead of replacing it with the data parent.
+A recognized source repository can select a new root. If no root is configured, the parent
+remains an explicitly unverified fallback for an installed Python package; use **Test connection**
+to check the selected deployment.
+
 The panel reads and writes the plugin's own **Cordis Config** (`store` / `root`), so a change survives
 upgrades and takes effect without restarting DSH. The value shown is what the runtime resolves after the
 full precedence chain: environment variables > profile row config > `SEKAISYNC_CONFIG` >
@@ -143,6 +154,39 @@ Ten model-facing tools, all read-only against the local knowledge base:
 
 <a id="readme-section-08"></a>
 
+## Regional Facts And Missing Content
+
+When a store is kept separately from the source repository, checking or saving
+its path preserves the configured backend root unless the new location contains
+actual SekaiSync source files. Without an existing root, the data-parent fallback
+is explicitly marked as unverified, rather than a confirmed source repository.
+
+`sekai_fact` accepts an optional `region` (`jp`, `en`, `tc`, `kr`, or `cn`).
+For example, request the Japanese snapshot while keeping English as the desired
+output language:
+
+```json
+{"entity_id":"character_profile:18","language":"en","region":"jp"}
+```
+
+The result reports the actual region and body language. An explicit region never
+borrows a body from another region. This tool also accepts `zh_tw` as an alias for
+`zh_hant`, and `zh_cn` as an alias for `zh_hans`.
+Explicit region requests require a backend that confirms the requested scope;
+an older backend that silently ignores the parameter produces an upgrade error.
+
+Missing content and a request that needs a region are data states, not successful
+evidence of a complete profile. The result puts these notices before the body;
+when a region is needed, retry with one of the listed available regions.
+Unscoped lookup keeps regional evidence separate from common facts.
+
+Parameter errors, failed HTTP requests, process startup failures, and cancellation
+are reported as tool errors, not ordinary successful `ERROR:` string values.
+
+Upgrading the SekaiSync backend does not recover fields already dropped from an
+old database. Restart old backend processes and re-sync or rebuild from raw data
+using the backend's recovery instructions before expecting those bodies to appear.
+
 ## Usage Recommendations (Token Discipline)
 
 1. Use `sekai_resolve` before generating any localized text. Use `sekai_fact` for precise facts; do not let the model answer from memory.
@@ -157,11 +201,11 @@ Ten model-facing tools, all read-only against the local knowledge base:
 
 ## Troubleshooting
 
-- `ERROR: 未找到 sekaisync 知识库 store`: set `SEKAISYNC_STORE` or edit `config.json`.
-- `ERROR: 无法启动 python …`: confirm that `python -m sekaisync --help` works. If the package is missing, run `pip install -e <sekaisync 仓库>`.
+- `未找到 sekaisync 知识库 store`: set `SEKAISYNC_STORE` or edit `config.json`.
+- `无法启动 python …`: confirm that `python -m sekaisync --help` works. If the package is missing, run `pip install -e <sekaisync 仓库>`.
 - Server 60-second cooldown: automatic restarts pause after 2 consecutive crashes. Check the integrity of the store with `python -m sekaisync --no-event-check integrity`.
-- `ERROR: HTTP …` in a tool result: the server has started but the request failed, usually because of a parameter issue. `sekai_status` reports the service mode and store path.
-- `ERROR: 缺少必填参数 …`: the plugin's guard caught a missing argument. Supply the requested argument and retry.
+- `HTTP ...` in a failed tool result: the server has started but the request failed, usually because of a parameter issue. `sekai_status` reports the service mode and store path.
+- `缺少必填参数 ...`: the plugin's guard caught a missing argument. Supply the requested argument and retry.
 - The row's **Configure** page is missing: the panel needs a Web profile with the plugin-manager UI and the `settings` service (a pure CLI composition has neither). Confirm `ui-plugin-manager` is in the profile, that the bundle is switched on, and that the deployment path resolves (see the first item above).
 - **Save and apply** reports success but the old path stays in effect: a higher layer (environment variable or profile row config) fixes `store`. The page names the effective value; change the higher layer instead.
 - `forbidden` or `unauthorized` from the panel: the request did not pass the framework's Host/Origin and cookie fence. The panel's `settings`-backed writes are intentionally restricted to the authenticated local client.

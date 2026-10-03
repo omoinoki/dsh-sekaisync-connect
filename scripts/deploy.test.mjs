@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { classifyPath, formatBytes } from '../lib/deploy.js'
+import { classifyPath, formatBytes, hasSekaiSyncSource } from '../lib/deploy.js'
 
 /** 造一个最小的可用 store：<root>/store/kb/sekaisync.db */
 function makeStore(root, { withDb = true, extraKb = [] } = {}) {
@@ -88,7 +88,21 @@ test('the removed panel helpers are gone: lib/deploy.js no longer walks the file
   const mod = await import('../lib/deploy.js')
   assert.equal(mod.detectCandidates, undefined, 'detectCandidates must not be exported any more')
   assert.equal(mod.listDirectories, undefined, 'listDirectories must not be exported any more')
-  assert.deepEqual(Object.keys(mod).sort(), ['classifyPath', 'formatBytes'])
+  assert.deepEqual(Object.keys(mod).sort(), ['classifyPath', 'formatBytes', 'hasSekaiSyncSource'])
+})
+
+test('source-root evidence requires a SekaiSync source file, not a generic project or directory', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sks-deploy-'))
+  try {
+    assert.equal(hasSekaiSyncSource(null), false)
+    assert.equal(hasSekaiSyncSource(root), false)
+    writeFileSync(join(root, 'pyproject.toml'), '[project]\nname = "unrelated"\n')
+    assert.equal(hasSekaiSyncSource(root), false)
+    mkdirSync(join(root, 'sekaisync', '__init__.py'), { recursive: true })
+    assert.equal(hasSekaiSyncSource(root), false, 'a directory named like a source file is not source evidence')
+    writeFileSync(join(root, 'sekaisync', 'tools.py'), '')
+    assert.equal(hasSekaiSyncSource(root), true)
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test('formatBytes is presentation-only and total', () => {
