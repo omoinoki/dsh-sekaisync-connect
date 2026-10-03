@@ -6,9 +6,10 @@ import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { performance } from 'node:perf_hooks'
+import { resolveBackendRoot } from './backend-root.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const backend = resolve(process.argv[2] || join(here, '..', '..', 'sekaisync-handoff-2026-08-14'))
+const backend = resolveBackendRoot({ argument: process.argv[2], pluginRoot: resolve(here, '..') })
 const parent = resolve(process.argv[3] || tmpdir())
 const scratch = mkdtempSync(join(parent, 'sekaisync-connect-integration-'))
 const store = join(scratch, 'store')

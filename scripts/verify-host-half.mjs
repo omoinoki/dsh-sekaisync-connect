@@ -2,13 +2,15 @@
 // 确认 10 个工具与 1 个 DeployService（Typert Remote 后端）都被注册，且清理函数成对存在。
 // 不联网、不起子进程——只校验装配与生命周期。
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const realLocal = join(root, 'config.local.json')
+const realBefore = existsSync(realLocal) ? readFileSync(realLocal) : null
 
 // 用临时配置目录，绝不动真实 config.local.json
 const configDir = mkdtempSync(join(tmpdir(), 'sks-host-'))
@@ -117,10 +119,12 @@ for (const { label, dispose } of effects) {
 assert.equal(tools.length, 0, 'disposing the tool effects unregisters every tool')
 
 // 真实配置未被触碰
-const realLocal = join(root, 'config.local.json')
-const realValue = JSON.parse(readFileSync(realLocal, 'utf8'))
-assert.equal(realValue.store, 'C:\\dsh_projects\\sekaisync-handoff-2026-08-14\\store',
+assert.equal(existsSync(realLocal), realBefore !== null,
   'the repository config.local.json must be untouched by this verification')
+if (realBefore !== null) {
+  assert.deepEqual(readFileSync(realLocal), realBefore,
+    'the repository config.local.json must be byte-for-byte unchanged')
+}
 
 rmSync(configDir, { recursive: true, force: true })
 delete process.env.SEKAISYNC_CONFIG_DIR
