@@ -27,10 +27,6 @@
 
 SekaiSync 知识库的 **DeepSeek Harness 直连插件**：具备无第三方依赖、免构建流程与低 Token 消耗特性，并在插件面板中提供部署路径选择。
 
-**0.3.9-alpha.1** 为 **SekaiSync 0.4.2-alpha** 补齐区服事实包及区域证据处理，
-明确区分调用故障，并避免部署路径保存覆盖已有源码根目录。
-升级要求与验收边界见[发布说明](CHANGELOG.md)。
-
 <a id="readme-section-01"></a>
 
 ## 安装

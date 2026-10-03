@@ -27,10 +27,6 @@ English | [中文](README.zh-CN.md)
 
 A **DeepSeek Harness direct-connect module** for the SekaiSync knowledge base: zero dependencies, zero build steps, and minimal token usage — plus a Plugins-panel page for choosing the deployment path.
 
-Release **0.3.9-alpha.1** adds scoped fact packs and regional evidence handling for
-**SekaiSync 0.4.2-alpha**, with explicit errors and safer deployment-path changes.
-See [release notes](CHANGELOG.md) for upgrade requirements and verification scope.
-
 <a id="readme-section-01"></a>
 
 ## Installation
